@@ -1,0 +1,522 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum GlobalRole {
+  super_admin
+  global_moderator
+  user
+}
+
+enum ProjectRole {
+  project_admin
+  content_manager
+  project_user
+}
+
+enum ModuleKey {
+  matrix
+  announcements
+  communications
+  templates
+  pricing
+  phrases
+  links
+  contacts
+  forms
+  important_topics
+  quick_links
+  home_sections
+  lead
+}
+
+enum UserStatus {
+  active
+  disabled
+}
+
+enum MediaKind {
+  image
+  file
+  video
+}
+
+enum AnnouncementColor {
+  red
+  orange
+  green
+  blue
+}
+
+enum ContactGroup {
+  wewnetrzne
+  zewnetrzne
+}
+
+enum TemplateChannel {
+  email
+  zgloszenie
+}
+
+enum PricingStatus {
+  active
+  archived
+}
+
+enum CommunicationStatus {
+  active
+  archived
+}
+
+enum CommunicationKind {
+  communication
+  organizational_topic
+}
+
+model User {
+  id          String              @id @default(uuid()) @db.Uuid
+  email       String              @unique(map: "users_email_key") @db.VarChar(320)
+  displayName String              @map("display_name")
+  initials    String              @db.VarChar(8)
+  globalRole  GlobalRole          @default(user) @map("global_role")
+  status      UserStatus          @default(active)
+  lastLoginAt DateTime?           @map("last_login_at") @db.Timestamptz(6)
+  createdAt   DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime            @updatedAt @map("updated_at") @db.Timestamptz(6)
+  auditLogs   AuditLog[]
+  formSubmissions ProjectFormSubmission[] @relation("ProjectFormSubmissionSubmitter")
+  memberships ProjectMembership[]
+
+  @@index([globalRole, status], map: "users_global_role_status_idx")
+  @@map("users")
+}
+
+model PlatformAnnouncement {
+  id           String            @id @default(uuid()) @db.Uuid
+  title        String
+  bodyJson     Json?             @map("body_jsonb")
+  description  String            @default("")
+  color        AnnouncementColor @default(blue)
+  active       Boolean           @default(true)
+  sortOrder    Int               @default(0) @map("sort_order")
+  visibleFrom  DateTime?         @map("visible_from") @db.Timestamptz(6)
+  visibleUntil DateTime?         @map("visible_until") @db.Timestamptz(6)
+  createdAt    DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([sortOrder, createdAt], map: "platform_announcements_sort_order_created_at_idx")
+  @@index([active, visibleFrom, visibleUntil], map: "platform_announcements_active_visible_window_idx")
+  @@map("platform_announcements")
+}
+
+model PlatformLink {
+  id           String   @id @default(uuid()) @db.Uuid
+  title        String
+  url          String
+  description  String   @default("")
+  icon         String   @db.VarChar(64)
+  sortOrder    Int      @default(0) @map("sort_order")
+  openInNewTab Boolean  @default(true) @map("open_in_new_tab")
+  isInternal   Boolean  @default(false) @map("is_internal")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([sortOrder, title], map: "platform_links_sort_order_title_idx")
+  @@map("platform_links")
+}
+
+model Project {
+  id             String              @id @default(uuid()) @db.Uuid
+  slug           String              @unique(map: "projects_slug_key")
+  code           String              @unique(map: "projects_code_key")
+  name           String
+  description    String?
+  isListed       Boolean             @default(true) @map("is_listed")
+  isActive       Boolean             @default(true) @map("is_active")
+  sortOrder      Int                 @default(0) @map("sort_order")
+  createdAt      DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime            @updatedAt @map("updated_at") @db.Timestamptz(6)
+  announcements  ProjectAnnouncement[]
+  auditLogs      AuditLog[]
+  communications ProjectCommunication[]
+  contacts       ProjectContact[]
+  forms          ProjectForm[]
+  formSubmissions ProjectFormSubmission[]
+  knowledgeArticles ProjectKnowledgeArticle[]
+  knowledgeCategories ProjectKnowledgeCategory[]
+  matrixEntries  ProjectMatrixEntry[]
+  memberships    ProjectMembership[]
+  links          ProjectLink[]
+  modules        ProjectModule[]
+  pricingDocuments ProjectPricingDocument[]
+  phrases        ProjectPhrase[]
+  quickLinks     ProjectQuickLink[]
+  homeSpotlights ProjectHomeSpotlight[]
+  templates      ProjectTemplate[]
+  uploadPolicies UploadPolicy[]
+
+  @@index([isListed, sortOrder, name], map: "projects_is_listed_sort_order_name_idx")
+  @@map("projects")
+}
+
+model ProjectMembership {
+  id            String      @id @default(uuid()) @db.Uuid
+  projectId     String      @map("project_id") @db.Uuid
+  userId        String      @map("user_id") @db.Uuid
+  effectiveRole ProjectRole @map("effective_role")
+  updatedAt     DateTime    @updatedAt @map("updated_at") @db.Timestamptz(6)
+  project       Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, userId], map: "project_memberships_project_id_user_id_key")
+  @@index([userId, effectiveRole], map: "project_memberships_user_id_effective_role_idx")
+  @@map("project_memberships")
+}
+
+model ProjectModule {
+  id           String    @id @default(uuid()) @db.Uuid
+  projectId    String    @map("project_id") @db.Uuid
+  moduleKey    ModuleKey @map("module_key")
+  enabled      Boolean   @default(true)
+  navVisible   Boolean   @default(true) @map("nav_visible")
+  navOrder     Int       @default(0) @map("nav_order")
+  settingsJson Json?     @map("settings_jsonb")
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  project      Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, moduleKey], map: "project_modules_project_id_module_key_key")
+  @@index([projectId, enabled, navOrder], map: "project_modules_project_id_enabled_nav_order_idx")
+  @@map("project_modules")
+}
+
+model ProjectForm {
+  id          String                  @id @default(uuid()) @db.Uuid
+  projectId   String                  @map("project_id") @db.Uuid
+  slug        String                  @db.VarChar(191)
+  title       String
+  description String                  @default("")
+  isActive    Boolean                 @default(true) @map("is_active")
+  fieldsJson  Json                    @map("fields_jsonb")
+  sortOrder   Int                     @default(0) @map("sort_order")
+  createdAt   DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime                @updatedAt @map("updated_at") @db.Timestamptz(6)
+  project     Project                 @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  submissions ProjectFormSubmission[]
+
+  @@unique([projectId, slug], map: "project_forms_project_id_slug_key")
+  @@index([projectId, sortOrder, title], map: "project_forms_project_id_sort_order_title_idx")
+  @@map("project_forms")
+}
+
+model ProjectFormSubmission {
+  id                   String       @id @default(uuid()) @db.Uuid
+  projectId            String       @map("project_id") @db.Uuid
+  formId               String       @map("form_id") @db.Uuid
+  payloadJson          Json         @map("payload_jsonb")
+  submitterUserId      String?      @map("submitter_user_id") @db.Uuid
+  submitterEmail       String?      @map("submitter_email") @db.VarChar(320)
+  submitterFirstName   String?      @map("submitter_first_name")
+  submitterLastName    String?      @map("submitter_last_name")
+  submitterDisplayName String?      @map("submitter_display_name")
+  deliveryStatus       String       @default("not_configured") @map("delivery_status") @db.VarChar(64)
+  deliveryNote         String?      @map("delivery_note")
+  createdAt            DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  form                 ProjectForm  @relation(fields: [formId], references: [id], onDelete: Cascade)
+  project              Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  submitterUser        User?        @relation("ProjectFormSubmissionSubmitter", fields: [submitterUserId], references: [id], onDelete: SetNull)
+
+  @@index([projectId, formId, createdAt], map: "project_form_submissions_project_id_form_id_created_at_idx")
+  @@index([projectId, createdAt], map: "project_form_submissions_project_id_created_at_idx")
+  @@map("project_form_submissions")
+}
+
+model ProjectHomeSpotlight {
+  id            String                  @id @default(uuid()) @db.VarChar(191)
+  projectId     String                  @map("project_id") @db.Uuid
+  articleId     String                  @map("article_id") @db.VarChar(191)
+  labelOverride String?                 @map("label_override")
+  sortOrder     Int                     @default(0) @map("sort_order")
+  createdAt     DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime                @updatedAt @map("updated_at") @db.Timestamptz(6)
+  article       ProjectKnowledgeArticle @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  project       Project                 @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, articleId], map: "project_home_spotlights_project_id_article_id_key")
+  @@index([projectId, sortOrder], map: "project_home_spotlights_project_id_sort_order_idx")
+  @@map("project_home_spotlights")
+}
+
+model ProjectQuickLink {
+  id           String   @id @default(uuid()) @db.Uuid
+  projectId    String   @map("project_id") @db.Uuid
+  label        String
+  url          String
+  icon         String   @db.VarChar(64)
+  sortOrder    Int      @default(0) @map("sort_order")
+  openInNewTab Boolean  @default(true) @map("open_in_new_tab")
+  isInternal   Boolean  @default(false) @map("is_internal")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  project      Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, sortOrder, label], map: "project_quick_links_project_id_sort_order_label_idx")
+  @@map("project_quick_links")
+}
+
+model ProjectLink {
+  id           String   @id @default(uuid()) @db.Uuid
+  projectId    String   @map("project_id") @db.Uuid
+  title        String
+  url          String
+  description  String   @default("")
+  icon         String   @db.VarChar(64)
+  sortOrder    Int      @default(0) @map("sort_order")
+  openInNewTab Boolean  @default(true) @map("open_in_new_tab")
+  isInternal   Boolean  @default(false) @map("is_internal")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  project      Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, sortOrder, title], map: "project_links_project_id_sort_order_title_idx")
+  @@map("project_links")
+}
+
+model ProjectAnnouncement {
+  id          String            @id @default(uuid()) @db.Uuid
+  projectId   String            @map("project_id") @db.Uuid
+  title       String
+  bodyJson    Json?             @map("body_jsonb")
+  description String            @default("")
+  color       AnnouncementColor @default(blue)
+  active      Boolean           @default(true)
+  sortOrder   Int               @default(0) @map("sort_order")
+  visibleFrom DateTime?         @map("visible_from") @db.Timestamptz(6)
+  visibleUntil DateTime?        @map("visible_until") @db.Timestamptz(6)
+  createdAt   DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+  project     Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, sortOrder, createdAt], map: "project_announcements_project_id_sort_order_created_at_idx")
+  @@index([projectId, active, visibleFrom, visibleUntil], map: "project_announcements_project_id_active_visible_window_idx")
+  @@map("project_announcements")
+}
+
+model ProjectContact {
+  id              String       @id @default(uuid()) @db.VarChar(191)
+  projectId       String       @map("project_id") @db.Uuid
+  title           String
+  description     String       @default("")
+  phone           String?      @db.VarChar(64)
+  email           String?      @db.VarChar(320)
+  address         String?
+  detailTableJson Json?        @map("detail_table_jsonb")
+  group           ContactGroup
+  sortOrder       Int          @default(0) @map("sort_order")
+  createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+  project         Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, sortOrder, title], map: "project_contacts_project_id_sort_order_title_idx")
+  @@index([projectId, group, sortOrder], map: "project_contacts_project_id_group_sort_order_idx")
+  @@map("project_contacts")
+}
+
+model ProjectKnowledgeCategory {
+  id          String                     @id @default(uuid()) @db.VarChar(191)
+  projectId   String                     @map("project_id") @db.Uuid
+  slug        String                     @db.VarChar(191)
+  name        String
+  description String?
+  parentId    String?                    @map("parent_id") @db.VarChar(191)
+  sortOrder   Int                        @default(0) @map("sort_order")
+  childOrder  String[]                   @default([]) @map("child_order")
+  createdAt   DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime                   @updatedAt @map("updated_at") @db.Timestamptz(6)
+  parent      ProjectKnowledgeCategory?  @relation("ProjectKnowledgeCategoryChildren", fields: [parentId], references: [id], onDelete: Restrict)
+  children    ProjectKnowledgeCategory[] @relation("ProjectKnowledgeCategoryChildren")
+  project     Project                    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  articles    ProjectKnowledgeArticle[]
+
+  @@unique([projectId, slug], map: "project_knowledge_categories_project_id_slug_key")
+  @@index([projectId, parentId, sortOrder], map: "project_knowledge_categories_project_parent_sort_idx")
+  @@index([projectId, sortOrder, name], map: "project_knowledge_categories_project_sort_name_idx")
+  @@map("project_knowledge_categories")
+}
+
+model ProjectKnowledgeArticle {
+  id                   String                         @id @default(uuid()) @db.VarChar(191)
+  projectId            String                         @map("project_id") @db.Uuid
+  categoryId           String                         @map("category_id") @db.VarChar(191)
+  slug                 String                         @db.VarChar(191)
+  title                String
+  summary              String                         @default("")
+  authorName           String?                        @map("author_name")
+  tags                 String[]                       @default([])
+  hiddenTags           String[]                       @default([]) @map("hidden_tags")
+  matrixLinkId         String?                        @map("matrix_link_id") @db.VarChar(191)
+  globalMatrixLinkIds  String[]                       @default([]) @map("global_matrix_link_ids")
+  keyDataPointsJson    Json?                          @map("key_data_points_jsonb")
+  quickActions         String[]                       @default([]) @map("quick_actions")
+  externalSourceUrl    String?                        @map("external_source_url")
+  sectionSearchEnabled Boolean                        @default(false) @map("section_search_enabled")
+  sortOrder            Int                            @default(0) @map("sort_order")
+  createdAt            DateTime                       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime                       @updatedAt @map("updated_at") @db.Timestamptz(6)
+  category             ProjectKnowledgeCategory       @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  homeSpotlights       ProjectHomeSpotlight[]
+  project              Project                        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  sections             ProjectKnowledgeArticleSection[]
+
+  @@unique([projectId, categoryId, slug], map: "project_knowledge_articles_project_category_slug_key")
+  @@index([projectId, categoryId, sortOrder], map: "project_knowledge_articles_project_category_sort_idx")
+  @@index([projectId, updatedAt], map: "project_knowledge_articles_project_updated_idx")
+  @@map("project_knowledge_articles")
+}
+
+model ProjectKnowledgeArticleSection {
+  id            String                  @id @default(uuid()) @db.VarChar(191)
+  articleId     String                  @map("article_id") @db.VarChar(191)
+  sortOrder     Int                     @default(0) @map("sort_order")
+  title         String
+  tags          String[]                @default([])
+  collapsible   Boolean                 @default(false)
+  showSeparator Boolean                 @default(true) @map("show_separator")
+  bodyJson      Json                    @map("body_jsonb")
+  createdAt     DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime                @updatedAt @map("updated_at") @db.Timestamptz(6)
+  article       ProjectKnowledgeArticle @relation(fields: [articleId], references: [id], onDelete: Cascade)
+
+  @@index([articleId, sortOrder], map: "project_knowledge_article_sections_article_sort_idx")
+  @@map("project_knowledge_article_sections")
+}
+
+model ProjectPhrase {
+  id                   String   @id @default(uuid()) @db.VarChar(191)
+  projectId            String   @map("project_id") @db.Uuid
+  title                String
+  content              String
+  requiresConfirmation Boolean  @default(false) @map("requires_confirmation")
+  sortOrder            Int      @default(0) @map("sort_order")
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  project              Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, sortOrder, title], map: "project_phrases_project_id_sort_order_title_idx")
+  @@map("project_phrases")
+}
+
+model ProjectTemplate {
+  id          String          @id @default(uuid()) @db.VarChar(191)
+  projectId   String          @map("project_id") @db.Uuid
+  title       String
+  channel     TemplateChannel
+  bodyJson    Json?           @map("body_jsonb")
+  exampleJson Json?           @map("example_jsonb")
+  sortOrder   Int             @default(0) @map("sort_order")
+  createdAt   DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime        @updatedAt @map("updated_at") @db.Timestamptz(6)
+  project     Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, channel, sortOrder], map: "project_templates_project_id_channel_sort_order_idx")
+  @@index([projectId, sortOrder, title], map: "project_templates_project_id_sort_order_title_idx")
+  @@map("project_templates")
+}
+
+model ProjectCommunication {
+  id                String              @id @default(uuid()) @db.VarChar(191)
+  projectId         String              @map("project_id") @db.Uuid
+  kind              CommunicationKind   @default(communication)
+  title             String
+  bodyJson          Json?               @map("body_jsonb")
+  status            CommunicationStatus @default(active)
+  communicationDate DateTime?           @map("communication_date") @db.Date
+  createdAt         DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime            @updatedAt @map("updated_at") @db.Timestamptz(6)
+  project           Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, kind, status, communicationDate], map: "project_comms_project_kind_status_date_idx")
+  @@index([projectId, kind, communicationDate, updatedAt], map: "project_comms_project_kind_date_updated_idx")
+  @@map("project_communications")
+}
+
+model ProjectPricingDocument {
+  id            String        @id @default(uuid()) @db.VarChar(191)
+  projectId     String        @map("project_id") @db.Uuid
+  title         String
+  subtitle      String?
+  provider      String?
+  effectiveFrom DateTime      @map("effective_from") @db.Date
+  status        PricingStatus @default(active)
+  footnotes     String[]      @default([])
+  sectionsJson  Json          @map("sections_jsonb")
+  createdAt     DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+  project       Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, effectiveFrom, updatedAt], map: "project_pricing_docs_project_effective_updated_idx")
+  @@index([projectId, status, effectiveFrom], map: "project_pricing_docs_project_status_effective_idx")
+  @@map("project_pricing_documents")
+}
+
+model ProjectMatrixEntry {
+  id                String   @id @default(uuid()) @db.VarChar(191)
+  projectId         String   @map("project_id") @db.Uuid
+  category          String
+  subcategory       String
+  keywords          String[] @default([])
+  description       String   @default("")
+  slaDays           Int      @default(1) @map("sla_days")
+  instructions      String   @default("")
+  additionalNotes   String   @default("") @map("additional_notes")
+  defaultDepartment String   @default("") @map("default_department")
+  conditionsJson    Json     @map("conditions_jsonb")
+  linkedTemplateIds String[] @default([]) @map("linked_template_ids")
+  sortOrder         Int      @default(0) @map("sort_order")
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  project           Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, category, sortOrder], map: "project_matrix_entries_project_category_sort_idx")
+  @@index([projectId, subcategory, updatedAt], map: "project_matrix_entries_project_subcategory_updated_idx")
+  @@map("project_matrix_entries")
+}
+
+model UploadPolicy {
+  id                  String    @id @default(uuid()) @db.Uuid
+  projectId           String?   @map("project_id") @db.Uuid
+  mediaKind           MediaKind @map("media_kind")
+  maxBytes            BigInt    @map("max_bytes")
+  allowedMimePatterns String[]  @default([]) @map("allowed_mime_patterns")
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  project             Project?  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, mediaKind], map: "upload_policies_project_id_media_kind_key")
+  @@map("upload_policies")
+}
+
+model AuditLog {
+  id           BigInt    @id @default(autoincrement()) @db.BigInt
+  occurredAt   DateTime  @default(now()) @map("occurred_at") @db.Timestamptz(6)
+  actorUserId  String?   @map("actor_user_id") @db.Uuid
+  projectId    String?   @map("project_id") @db.Uuid
+  moduleKey    ModuleKey? @map("module_key")
+  entityType   String    @map("entity_type") @db.VarChar(64)
+  entityId     String?   @map("entity_id") @db.VarChar(191)
+  actionType   String    @map("action_type") @db.VarChar(32)
+  metadataJson Json?     @map("metadata_jsonb")
+  actorUser    User?     @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+  project      Project?  @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  @@index([occurredAt], map: "audit_log_occurred_at_idx")
+  @@index([projectId, occurredAt], map: "audit_log_project_id_occurred_at_idx")
+  @@index([actorUserId, occurredAt], map: "audit_log_actor_user_id_occurred_at_idx")
+  @@index([moduleKey, occurredAt], map: "audit_log_module_key_occurred_at_idx")
+  @@index([entityType, entityId, occurredAt], map: "audit_log_entity_type_entity_id_occurred_at_idx")
+  @@map("audit_log")
+}

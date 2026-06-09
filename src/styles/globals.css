@@ -1,0 +1,972 @@
+@import "tailwindcss";
+
+/* Class-based dark mode variant — activates when .dark is on an ancestor */
+@variant dark (&:where(.dark, .dark *));
+
+:root {
+  --background: #f8f9fb;
+  --foreground: #111827;
+  --ui-surface: #ffffff;
+  --ui-surface-soft: #f8fafc;
+  --ui-surface-hover: #f3f6fa;
+  --ui-border: #dbe3ec;
+  --ui-border-strong: #c7d5e8;
+  --ui-text: #0f172a;
+  --ui-text-muted: #64748b;
+  --ui-focus-ring: rgba(29, 79, 145, 0.3);
+  --ui-primary: #1d4f91;
+  --ui-primary-hover: #1a4580;
+  --ui-danger: #b91c1c;
+  --ui-danger-bg: #fef2f2;
+  --ui-danger-bg-hover: #fee2e2;
+  --ui-success-bg: #ecfdf5;
+  --ui-success-border: #a7f3d0;
+  --ui-success-text: #166534;
+  --ui-info-bg: #eff6ff;
+  --ui-info-border: #bfdbfe;
+  --ui-info-text: #1d4f91;
+  --ui-warning-bg: #fffbeb;
+  --ui-warning-border: #fcd34d;
+  --ui-warning-text: #92400e;
+  --scrollbar-size: 10px;
+  --scrollbar-track: rgba(15, 23, 42, 0.08);
+  --scrollbar-thumb: rgba(30, 41, 59, 0.36);
+  --scrollbar-thumb-hover: rgba(30, 41, 59, 0.52);
+  --scrollbar-thumb-active: rgba(30, 41, 59, 0.66);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: system-ui, -apple-system, "Segoe UI", Arial, Helvetica, sans-serif;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+/* Unified scrollbar styling (WebKit + Firefox best effort) */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+}
+
+*::-webkit-scrollbar {
+  width: var(--scrollbar-size);
+  height: var(--scrollbar-size);
+}
+
+*::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+  border-radius: 999px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: var(--scrollbar-thumb);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  min-height: 28px;
+}
+
+*:hover::-webkit-scrollbar-thumb {
+  background-color: var(--scrollbar-thumb-hover);
+}
+
+*::-webkit-scrollbar-thumb:active {
+  background-color: var(--scrollbar-thumb-active);
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+@layer base {
+  button:not(:disabled):not([aria-disabled="true"]),
+  [role="button"]:not([aria-disabled="true"]),
+  input[type="submit"]:not(:disabled),
+  input[type="button"]:not(:disabled),
+  input[type="reset"]:not(:disabled),
+  input[type="checkbox"],
+  input[type="radio"],
+  summary {
+    cursor: pointer;
+  }
+
+  button:disabled,
+  button[aria-disabled="true"],
+  [role="button"][aria-disabled="true"],
+  input[type="submit"]:disabled,
+  input[type="button"]:disabled,
+  input[type="reset"]:disabled {
+    cursor: not-allowed;
+  }
+
+  button:not(:disabled):not([aria-disabled="true"]),
+  [role="button"]:not([aria-disabled="true"]),
+  input[type="submit"]:not(:disabled),
+  input[type="button"]:not(:disabled),
+  input[type="reset"]:not(:disabled) {
+    transition-property: color, background-color, border-color, text-decoration-color, fill, stroke,
+      opacity, box-shadow, transform, filter;
+    transition-duration: 150ms;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  a[href] {
+    transition-property: color, background-color, border-color, text-decoration-color, opacity,
+      box-shadow;
+    transition-duration: 150ms;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  select:not(:disabled) {
+    cursor: pointer;
+  }
+
+  :where(
+    button,
+    [role="button"],
+    a[href],
+    input,
+    textarea,
+    select
+  ):focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--ui-focus-ring);
+  }
+
+  input:disabled,
+  textarea:disabled,
+  select:disabled {
+    cursor: not-allowed;
+    opacity: 0.7;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    button:not(:disabled):not([aria-disabled="true"]),
+    [role="button"]:not([aria-disabled="true"]),
+    input[type="submit"]:not(:disabled),
+    input[type="button"]:not(:disabled),
+    input[type="reset"]:not(:disabled),
+    a[href] {
+      transition-duration: 0.01ms;
+      transition-property: none;
+    }
+  }
+}
+
+@layer components {
+  .ui-panel {
+    border: 1px solid var(--ui-border);
+    border-radius: 0.75rem;
+    background: var(--ui-surface);
+  }
+
+  .ui-panel-soft {
+    border: 1px solid var(--ui-border);
+    border-radius: 0.75rem;
+    background: var(--ui-surface-soft);
+  }
+
+  .ui-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    border-radius: 0.5rem;
+    font-weight: 600;
+    line-height: 1;
+    border: 1px solid transparent;
+  }
+
+  .ui-btn-sm {
+    height: 2rem;
+    padding: 0 0.75rem;
+    font-size: 0.75rem;
+  }
+
+  .ui-btn-md {
+    height: 2.25rem;
+    padding: 0 1rem;
+    font-size: 0.875rem;
+  }
+
+  .ui-btn-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.5rem;
+    border: 1px solid var(--ui-border);
+    background: var(--ui-surface);
+    color: var(--ui-text-muted);
+  }
+
+  .ui-btn-neutral {
+    border-color: var(--ui-border);
+    background: var(--ui-surface);
+    color: var(--ui-text);
+  }
+
+  .ui-btn-neutral:hover {
+    background: var(--ui-surface-hover);
+    border-color: var(--ui-border-strong);
+  }
+
+  .ui-btn-primary {
+    border-color: var(--ui-primary);
+    background: var(--ui-primary);
+    color: #ffffff;
+  }
+
+  .ui-btn-primary:hover {
+    background: var(--ui-primary-hover);
+    border-color: var(--ui-primary-hover);
+  }
+
+  .ui-btn-danger {
+    border-color: #fca5a5;
+    background: var(--ui-danger-bg);
+    color: var(--ui-danger);
+  }
+
+  .ui-btn-danger:hover {
+    background: var(--ui-danger-bg-hover);
+  }
+
+  .ui-btn-ghost {
+    border-color: var(--ui-border);
+    background: transparent;
+    color: var(--ui-text-muted);
+  }
+
+  .ui-btn-ghost:hover {
+    background: var(--ui-surface-hover);
+    color: var(--ui-text);
+  }
+
+  .ui-input,
+  .ui-textarea,
+  .ui-select {
+    width: 100%;
+    border-radius: 0.5rem;
+    border: 1px solid var(--ui-border);
+    background: var(--ui-surface);
+    color: var(--ui-text);
+  }
+
+  .ui-input,
+  .ui-select {
+    height: 2.25rem;
+    padding: 0 0.75rem;
+    font-size: 0.875rem;
+  }
+
+  .ui-textarea {
+    min-height: 6rem;
+    padding: 0.625rem 0.75rem;
+    font-size: 0.875rem;
+    line-height: 1.45;
+    resize: vertical;
+  }
+
+  .ui-input::placeholder,
+  .ui-textarea::placeholder {
+    color: #94a3b8;
+  }
+
+  .ui-menu-surface {
+    border: 1px solid var(--ui-border);
+    border-radius: 0.625rem;
+    background: var(--ui-surface);
+    box-shadow: 0 12px 30px rgba(15, 23, 42, 0.18);
+    backdrop-filter: blur(8px);
+  }
+
+  .ui-menu-surface .ui-panel-soft,
+  .ui-status-section {
+    border-radius: 0.625rem;
+  }
+
+  .ui-menu-item {
+    display: flex;
+    height: 2.25rem;
+    width: 100%;
+    align-items: center;
+    border-radius: 0.4375rem;
+    padding: 0 0.5rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: color-mix(in oklab, var(--ui-text) 82%, var(--ui-text-muted) 18%);
+  }
+
+  .ui-menu-item:hover {
+    background: var(--ui-surface-hover);
+    color: var(--ui-text);
+  }
+
+  .ui-menu-item-danger {
+    color: var(--ui-danger);
+  }
+
+  .ui-menu-item-danger:hover {
+    background: var(--ui-danger-bg);
+  }
+
+  .ui-badge {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 0.5rem;
+    border: 1px solid var(--ui-border);
+    padding: 0.2rem 0.5rem;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    line-height: 1;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+  }
+
+  .ui-badge-info {
+    border-color: var(--ui-info-border);
+    background: var(--ui-info-bg);
+    color: var(--ui-info-text);
+  }
+
+  .ui-badge-success {
+    border-color: var(--ui-success-border);
+    background: var(--ui-success-bg);
+    color: var(--ui-success-text);
+  }
+
+  .ui-badge-warning {
+    border-color: var(--ui-warning-border);
+    background: var(--ui-warning-bg);
+    color: var(--ui-warning-text);
+  }
+
+  .ui-badge-danger {
+    border-color: #fecaca;
+    background: var(--ui-danger-bg);
+    color: var(--ui-danger);
+  }
+
+  .ui-badge-muted {
+    border-color: color-mix(in oklab, var(--ui-border) 88%, white 12%);
+    background: color-mix(in oklab, var(--ui-surface-soft) 94%, white 6%);
+    color: var(--ui-text-muted);
+    font-weight: 600;
+  }
+
+  .ui-kbd {
+    border: 1px solid var(--ui-border);
+    border-radius: 0.375rem;
+    background: var(--ui-surface);
+    padding: 0.125rem 0.375rem;
+    font-size: 0.625rem;
+    font-weight: 600;
+    color: #64748b;
+  }
+
+  .ui-toast {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    border-radius: 0.75rem;
+    border: 1px solid var(--ui-border);
+    padding: 0.7rem 0.9rem;
+    box-shadow: 0 10px 28px rgba(15, 23, 42, 0.16);
+    backdrop-filter: blur(6px);
+  }
+
+  .ui-toast-success {
+    border-color: var(--ui-success-border);
+    background: color-mix(in oklab, var(--ui-success-bg) 86%, white 14%);
+    color: var(--ui-success-text);
+  }
+
+  .ui-toast-error {
+    border-color: #fecaca;
+    background: color-mix(in oklab, var(--ui-danger-bg) 90%, white 10%);
+    color: #991b1b;
+  }
+
+  .ui-toast-info {
+    border-color: var(--ui-info-border);
+    background: color-mix(in oklab, var(--ui-info-bg) 88%, white 12%);
+    color: var(--ui-info-text);
+  }
+}
+
+@keyframes page-view-enter {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.page-view-transition {
+  animation: page-view-enter 0.32s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page-view-transition {
+    animation: none;
+  }
+}
+
+/* ── ProseMirror / TipTap editor ─────────────────────────────────────────── */
+
+/* Placeholder text */
+.ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: #9ca3af;
+  pointer-events: none;
+  height: 0;
+}
+
+/* Base typography inside editor */
+.prose-editor p {
+  margin-bottom: 0.6em;
+  line-height: 1.75;
+  color: #374151;
+}
+
+.prose-editor h1 {
+  font-size: 1.45em;
+  font-weight: 700;
+  margin-top: 1.1em;
+  margin-bottom: 0.35em;
+  color: #0f172a;
+}
+
+.prose-editor h2 {
+  font-size: 1.2em;
+  font-weight: 600;
+  margin-top: 1em;
+  margin-bottom: 0.3em;
+  color: #0f172a;
+}
+
+.prose-editor h3 {
+  font-size: 1.05em;
+  font-weight: 600;
+  margin-top: 0.9em;
+  margin-bottom: 0.25em;
+  color: #1e293b;
+}
+
+.prose-editor ul,
+.prose-editor ol {
+  padding-left: 2.5em;
+  margin-top: 0.35em;
+  margin-bottom: 0.8em;
+}
+
+/* Top-level bullet = filled disc */
+.prose-editor ul {
+  list-style-type: disc;
+}
+
+/* Nested bullet = hollow circle — more visible indent + subtle left guide */
+.prose-editor ul ul,
+.prose-editor ol ul {
+  list-style-type: circle;
+  margin-top: 0.25em;
+  margin-bottom: 0.25em;
+  border-left: 2px solid #e5e7eb;
+  padding-left: 2.25em;
+}
+
+/* Deep nested bullet = square */
+.prose-editor ul ul ul,
+.prose-editor ol ul ul {
+  list-style-type: square;
+}
+
+.prose-editor ol {
+  list-style-type: decimal;
+}
+
+/* Nested ordered list */
+.prose-editor ol ol {
+  border-left: 2px solid #e5e7eb;
+  padding-left: 2.25em;
+  margin-top: 0.25em;
+  margin-bottom: 0.25em;
+}
+
+.prose-editor li {
+  margin-bottom: 0.35em;
+  line-height: 1.7;
+  color: #374151;
+}
+
+.prose-editor blockquote {
+  border-left: 4px solid #1d4f91;
+  padding-left: 1em;
+  color: #4b5563;
+  font-style: italic;
+  margin: 0.75em 0;
+}
+
+.prose-editor code {
+  background: #f1f5f9;
+  color: #1e293b;
+  padding: 0.15em 0.35em;
+  border-radius: 4px;
+  font-family: ui-monospace, monospace;
+  font-size: 0.85em;
+}
+
+.prose-editor pre {
+  background: #f1f5f9;
+  color: #1e293b;
+  padding: 0.75rem 1rem;
+  border-radius: 6px;
+  overflow-x: auto;
+  margin: 0.75em 0;
+  font-size: 0.85em;
+}
+
+.prose-editor pre code {
+  background: transparent;
+  padding: 0;
+}
+
+.prose-editor hr {
+  border: none;
+  border-top: 1px solid #e5e7eb;
+  margin: 1em 0;
+}
+
+.prose-editor a {
+  color: #1d4f91;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.prose-editor .no-copy-inline,
+.tiptap-prose .no-copy-inline {
+  border-radius: 0.12rem;
+  background: color-mix(in oklab, #fef3c7 16%, transparent 84%);
+  padding: 0 0.04em;
+  font-size: 0.92em;
+  line-height: 1;
+  box-decoration-break: clone;
+  text-decoration-line: underline;
+  text-decoration-style: dotted;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.14em;
+  text-decoration-color: color-mix(in oklab, #92400e 35%, transparent 65%);
+}
+
+/* ── TipTap renderer (article view) list styles ──────────────────────────── */
+/* top-level: disc (filled), nested: circle (hollow), deep: square */
+
+/* .tiptap-bullet-list (class on the <ul>) ensures top-level bullets are disc. */
+/* Nested sublists are inside a <li>, so .tiptap-bullet-list .tiptap-bullet-list
+   targets second-level lists. The ml-10 accumulates per level in the DOM. */
+
+.tiptap-prose .tiptap-bullet-list .tiptap-bullet-list {
+  list-style-type: circle;
+}
+
+.tiptap-prose .tiptap-bullet-list .tiptap-bullet-list .tiptap-bullet-list {
+  list-style-type: square;
+}
+
+/* Selection highlight */
+.prose-editor .ProseMirror-selectednode {
+  outline: 2px solid #1d4f91;
+  outline-offset: 2px;
+}
+
+/* Table styles in editor */
+
+/* TipTap wraps every table in a .tableWrapper div */
+.prose-editor .tableWrapper {
+  overflow-x: auto;
+  overflow-y: hidden;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  margin: 0.75em 0;
+}
+
+.prose-editor table {
+  border-collapse: collapse;
+  width: 100%;
+  table-layout: fixed; /* even column widths */
+  font-size: 0.9em;
+}
+
+.prose-editor th,
+.prose-editor td {
+  border: 1px solid #d1d5db;
+  padding: 0.45em 0.7em;
+  vertical-align: top;
+  position: relative;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+.prose-editor th {
+  background: #f8fafc;
+  font-weight: 600;
+  font-size: 0.82em;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #475569;
+  text-align: left;
+}
+
+/* Highlight selected cell */
+.prose-editor .selectedCell::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(29, 79, 145, 0.12);
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Dark mode overrides
+   These rules live outside @layer so they outrank Tailwind's layered utilities
+   without needing !important. The .dark class is toggled on <html>.
+───────────────────────────────────────────────────────────────────────────── */
+
+/* Color scheme hint for browser chrome (scrollbars, inputs) */
+.dark { color-scheme: dark; }
+
+.dark {
+  --ui-surface: #1e293b;
+  --ui-surface-soft: #1a2535;
+  --ui-surface-hover: #263347;
+  --ui-border: #334155;
+  --ui-border-strong: #475569;
+  --ui-text: #f1f5f9;
+  --ui-text-muted: #94a3b8;
+  --ui-focus-ring: rgba(59, 130, 246, 0.35);
+  --ui-primary: #2563eb;
+  --ui-primary-hover: #1d4ed8;
+  --ui-danger-bg: rgba(127, 29, 29, 0.3);
+  --ui-danger-bg-hover: rgba(127, 29, 29, 0.38);
+  --ui-success-bg: rgba(20, 83, 45, 0.34);
+  --ui-success-border: rgba(74, 222, 128, 0.4);
+  --ui-success-text: #86efac;
+  --ui-info-bg: rgba(30, 58, 95, 0.5);
+  --ui-info-border: rgba(59, 130, 246, 0.4);
+  --ui-info-text: #93c5fd;
+  --ui-warning-bg: rgba(120, 53, 15, 0.34);
+  --ui-warning-border: rgba(251, 191, 36, 0.45);
+  --ui-warning-text: #fbbf24;
+  --scrollbar-track: rgba(148, 163, 184, 0.12);
+  --scrollbar-thumb: rgba(148, 163, 184, 0.44);
+  --scrollbar-thumb-hover: rgba(148, 163, 184, 0.62);
+  --scrollbar-thumb-active: rgba(191, 219, 254, 0.72);
+}
+
+/* ── Shared dark depth refinements for overlays / nested status ─────────── */
+.dark .ui-menu-surface {
+  border-color: #42546b;
+  background: color-mix(in oklab, var(--ui-surface) 84%, #334155 16%);
+  box-shadow:
+    0 18px 38px rgba(2, 6, 23, 0.58),
+    inset 0 1px 0 rgba(148, 163, 184, 0.12);
+}
+
+.dark .ui-menu-item {
+  color: #d7e4f4;
+}
+
+.dark .ui-menu-item:hover {
+  color: #f1f5f9;
+}
+
+.dark .ui-menu-item-danger {
+  color: #f87171;
+}
+
+.dark .ui-menu-item-danger:hover {
+  color: #fca5a5;
+}
+
+.dark .ui-menu-surface .ui-panel-soft,
+.dark .ui-status-section {
+  border-color: #4b6079;
+  background: color-mix(in oklab, var(--ui-surface-soft) 72%, #334155 28%);
+  box-shadow: inset 0 1px 0 rgba(148, 163, 184, 0.1);
+}
+
+.dark .ui-badge-muted {
+  border-color: rgba(148, 163, 184, 0.38);
+  background: color-mix(in oklab, #334155 62%, #1e293b 38%);
+  color: #dbe7f5;
+}
+
+/* ── Base page background ────────────────────────────────────────────────── */
+.dark body { background-color: #0f172a; }
+.dark .bg-\[\#f8f9fb\] { background-color: #0f172a; }
+
+/* ── Card / panel surfaces ───────────────────────────────────────────────── */
+.dark [class~="bg-white"] { background-color: #1e293b; }
+
+/* Muted surface: table headers, secondary fills */
+.dark .bg-\[\#f8fafc\],
+.dark .bg-\[\#fafbfc\],
+.dark .bg-\[\#f9fafb\],
+.dark .bg-\[\#f8fafb\],
+.dark .bg-\[\#fbfdff\],
+.dark .bg-\[\#fafcff\] { background-color: #1a2535; }
+
+/* Slightly elevated surface */
+.dark .bg-\[\#f3f6fa\],
+.dark .bg-\[\#f4f7fb\],
+.dark .bg-\[\#eef3f8\] { background-color: #1e293b; }
+
+/* Light fill (avatars, pills) */
+.dark .bg-\[\#f1f5f9\] { background-color: #263347; }
+
+/* ── Selected / active states ────────────────────────────────────────────── */
+.dark .bg-\[\#f4f8fc\],
+.dark .bg-\[\#f0f5ff\],
+.dark .bg-\[\#e8edf5\] { background-color: #1e3a5f; }
+
+/* ── Brand / blue tints ──────────────────────────────────────────────────── */
+.dark .bg-\[\#e9f2ff\],
+.dark .bg-\[\#eff6ff\],
+.dark .bg-\[\#dbeafe\] { background-color: #1e3a5f; }
+
+/* ── Indigo tints ────────────────────────────────────────────────────────── */
+.dark .bg-\[\#eef2ff\],
+.dark .bg-\[\#ede9fe\] { background-color: rgba(67, 56, 202, 0.15); }
+
+/* ── Green tints ─────────────────────────────────────────────────────────── */
+.dark .bg-\[\#dcfce7\] { background-color: rgba(21, 128, 61, 0.2); }
+
+/* ── Red tints ───────────────────────────────────────────────────────────── */
+.dark .bg-\[\#fee2e2\],
+.dark .bg-\[\#fff5f5\],
+.dark .bg-\[\#fffafa\] { background-color: rgba(127, 29, 29, 0.25); }
+
+/* ── Amber tints ─────────────────────────────────────────────────────────── */
+.dark .bg-\[\#fef3c7\] { background-color: rgba(120, 53, 15, 0.25); }
+
+/* ── Hover backgrounds ───────────────────────────────────────────────────── */
+.dark .hover\:bg-\[\#f1f5f9\]:hover,
+.dark .hover\:bg-\[\#f3f5f8\]:hover,
+.dark .hover\:bg-\[\#f3f6fa\]:hover,
+.dark .hover\:bg-\[\#f4f7fb\]:hover,
+.dark .hover\:bg-\[\#f8fafc\]:hover,
+.dark .hover\:bg-\[\#f8fafb\]:hover,
+.dark .hover\:bg-\[\#f9fafb\]:hover,
+.dark .hover\:bg-\[\#fafbfc\]:hover,
+.dark .hover\:bg-\[\#fbfdff\]:hover { background-color: #263347; }
+
+.dark .hover\:bg-\[\#fee2e2\]:hover { background-color: rgba(127, 29, 29, 0.3); }
+.dark .hover\:bg-\[\#fef2f2\]:hover { background-color: rgba(127, 29, 29, 0.2); }
+.dark .hover\:bg-\[\#dbeafe\]:hover { background-color: #1e3a5f; }
+
+/* ── Text — primary ──────────────────────────────────────────────────────── */
+.dark .text-\[\#0f172a\],
+.dark .text-\[\#111827\],
+.dark .text-\[\#1e293b\],
+.dark .text-\[\#1f2937\] { color: #f1f5f9; }
+
+/* ── Text — secondary ────────────────────────────────────────────────────── */
+.dark .text-\[\#374151\],
+.dark .text-\[\#334155\] { color: #cbd5e1; }
+
+/* ── Text — muted ────────────────────────────────────────────────────────── */
+.dark .text-\[\#4b5563\],
+.dark .text-\[\#64748b\],
+.dark .text-\[\#6b7280\],
+.dark .text-\[\#475569\] { color: #94a3b8; }
+
+/* ── Text — very muted ───────────────────────────────────────────────────── */
+.dark .text-\[\#9ca3af\],
+.dark .text-\[\#94a3b8\],
+.dark .text-\[\#b0bac9\],
+.dark .text-\[\#b0b8c4\] { color: #64748b; }
+
+/* ── Text — decorative light gray ───────────────────────────────────────── */
+.dark .text-\[\#d1d5db\] { color: #475569; }
+
+/* ── Text — brand ────────────────────────────────────────────────────────── */
+.dark .text-\[\#1d4f91\],
+.dark .text-\[\#1e40af\],
+.dark .text-\[\#1e3a8a\],
+.dark .text-\[\#163d72\] { color: #93c5fd; }
+
+/* ── Text — indigo ───────────────────────────────────────────────────────── */
+.dark .text-\[\#4338ca\],
+.dark .text-\[\#6d28d9\] { color: #a5b4fc; }
+
+/* ── Text — green ────────────────────────────────────────────────────────── */
+.dark .text-\[\#166534\] { color: #4ade80; }
+
+/* ── Text — red ──────────────────────────────────────────────────────────── */
+.dark .text-\[\#dc2626\],
+.dark .text-\[\#b91c1c\],
+.dark .text-\[\#7f1d1d\] { color: #f87171; }
+
+/* ── Text — amber ────────────────────────────────────────────────────────── */
+.dark .text-\[\#92400e\],
+.dark .text-\[\#78350f\] { color: #fbbf24; }
+
+/* ── Hover text ──────────────────────────────────────────────────────────── */
+.dark .hover\:text-\[\#0f172a\]:hover,
+.dark .hover\:text-\[\#111827\]:hover { color: #f1f5f9; }
+.dark .hover\:text-\[\#374151\]:hover { color: #cbd5e1; }
+.dark .hover\:text-\[\#1d4f91\]:hover { color: #93c5fd; }
+
+/* ── Borders — standard ──────────────────────────────────────────────────── */
+.dark .border-\[\#e5e7eb\],
+.dark .border-\[\#e2e8f0\],
+.dark .border-\[\#dde5ee\],
+.dark .border-\[\#dbe3ec\],
+.dark .border-\[\#d9e2ec\],
+.dark .border-\[\#d1d5db\],
+.dark .border-\[\#ccd7e4\],
+.dark .border-\[\#cbd5e1\],
+.dark .border-\[\#c3d6ea\],
+.dark .border-\[\#d5dee8\],
+.dark .border-\[\#dce5ef\],
+.dark .border-\[\#c7d5e8\] { border-color: #334155; }
+
+.dark .border-\[\#edf2f7\],
+.dark .border-\[\#edf1f5\],
+.dark .border-\[\#e8ecf3\],
+.dark .border-\[\#f1f5f9\],
+.dark .border-\[\#eef2f6\],
+.dark .border-\[\#e8edf3\] { border-color: #2d3f55; }
+
+/* ── Borders — blue ──────────────────────────────────────────────────────── */
+.dark .border-\[\#bfdbfe\],
+.dark .border-\[\#93c5fd\],
+.dark .border-\[\#dbeafe\] { border-color: #1d4f91; }
+
+/* ── Borders — indigo ────────────────────────────────────────────────────── */
+.dark .border-\[\#c7d2fe\] { border-color: #4338ca; }
+
+/* ── Borders — red ───────────────────────────────────────────────────────── */
+.dark .border-\[\#fecaca\],
+.dark .border-\[\#fee2e2\] { border-color: #7f1d1d; }
+
+/* ── Borders — amber ─────────────────────────────────────────────────────── */
+.dark .border-\[\#fde68a\] { border-color: #78350f; }
+
+/* ── Hover borders ───────────────────────────────────────────────────────── */
+.dark .hover\:border-\[\#1d4f91\]:hover { border-color: #3b82f6; }
+.dark .hover\:border-\[\#94a3b8\]:hover,
+.dark .hover\:border-\[\#ccd7e4\]:hover { border-color: #475569; }
+
+/* ── Input / form fields ─────────────────────────────────────────────────── */
+.dark input:not([type="submit"]):not([type="button"]):not([type="reset"]):not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+.dark textarea,
+.dark select {
+  background-color: #1e293b;
+  color: #f1f5f9;
+  border-color: #334155;
+}
+
+.dark input::placeholder,
+.dark textarea::placeholder { color: #475569; }
+
+/* Keep date picker icon readable */
+.dark input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7); }
+
+/* ── Prose / rich-text content (TipTap renderer + editor) ───────────────── */
+.dark .prose-editor p,
+.dark .prose-editor li { color: #cbd5e1; }
+
+.dark .prose-editor h1,
+.dark .prose-editor h2 { color: #f1f5f9; }
+
+.dark .prose-editor h3 { color: #e2e8f0; }
+
+.dark .prose-editor blockquote {
+  color: #94a3b8;
+  border-left-color: #3b82f6;
+}
+
+.dark .prose-editor code {
+  background-color: #1a2535;
+  color: #93c5fd;
+}
+
+.dark .prose-editor pre {
+  background-color: #1a2535;
+  color: #cbd5e1;
+}
+
+.dark .prose-editor hr { border-top-color: #334155; }
+.dark .prose-editor a { color: #3b82f6; }
+
+.dark .prose-editor th {
+  background: #1a2535;
+  color: #94a3b8;
+}
+.dark .prose-editor td,
+.dark .prose-editor th { border-color: #334155; }
+.dark .prose-editor .tableWrapper { border-color: #334155; }
+
+
+/* ── Additional dark tokens (polish pass) ────────────────────────────────── */
+
+/* Matrix detail cards + matrix-link node bg */
+.dark .bg-\[\#f0f5ff\] { background-color: #1e3a5f; }
+
+/* HomePage icon wells + quick-access hover */
+.dark .bg-\[\#edf3fa\] { background-color: #1e293b; }
+.dark .hover\:bg-\[\#e5eef9\]:hover { background-color: #1e3a5f; }
+
+/* "Baza wiedzy" button hover (bg-[#e2e8f0]) */
+.dark .hover\:bg-\[\#e2e8f0\]:hover { background-color: #263347; }
+
+/* Rich-editor toolbar hover */
+.dark .hover\:bg-\[\#dce7f5\]:hover { background-color: #1e3a5f; }
+
+/* Hover border for card lift effect */
+.dark .hover\:border-\[\#cfd9e4\]:hover { border-color: #475569; }
+
+/* Text token for #375a7f (icon color in HomePage quick-access) */
+.dark .text-\[\#375a7f\] { color: #93c5fd; }
+
+/* Rich-editor table toolbar border */
+.dark .border-\[\#dce7f5\] { border-color: #334155; }
+
+/* Matrix-link node view bg uses bg-[#1d4f91]/10 — that's rgba-based, fine already */
+/* But the outer border border-[#1d4f91]/25 is also rgba-based, fine */
+
+/* ── Additional dark tokens (demo polish pass 2) ─────────────────────────── */
+
+/* Order-manager grip handles, position counters, empty-state muted text */
+.dark .text-\[\#c4cdd8\] { color: #475569; }
+
+/* Selected card border across list-detail pages (Templates, Komunikaty, Cenniki, Matrix) */
+.dark .border-\[\#b6c6d8\] { border-color: #3b5a7d; }
+
+/* Table dividers using divide-[#f1f5f9] (ArticleList, CategoryManager) */
+.dark .divide-\[\#f1f5f9\] > * + * { border-color: #2d3f55; }
+
+/* Hover row highlight in MatrixEntryList */
+.dark .hover\:bg-\[\#f4f8fc\]:hover { background-color: #1e3a5f; }
+
+/* Routing condition card borders in MatrixPage detail panel */
+.dark .border-\[\#dde8f4\] { border-color: #2d4a6a; }
+
