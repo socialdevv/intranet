@@ -16,7 +16,6 @@ import type { AppData, AppRole } from "@/lib/types/domain";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const LS_KEY = "altcloud_data";
 export const CURRENT_SCHEMA_VERSION = 4;
 const DEFAULT_UPLOAD_ENDPOINT_PATH = "/api/v1/uploads";
 const LEGACY_UPLOAD_ENDPOINT_PATH = "/uploads";
@@ -45,9 +44,37 @@ export type ParseImportedJsonResult =
   | { ok: true; data: AppData; report: DataMigrationReport; rawSchemaVersion: number | null }
   | { ok: false; error: string; rawSchemaVersion: number | null };
 
-export type LocalStorageSaveResult =
-  | { ok: true }
-  | { ok: false; error: string };
+export type DataImportDiagnostics =
+  | {
+      at: string;
+      ok: true;
+      rawSchemaVersion: number | null;
+      inputSchemaVersion: number | null;
+      outputSchemaVersion: number;
+      migratedSchema: boolean;
+      normalized: boolean;
+      notes: string[];
+    }
+  | {
+      at: string;
+      ok: false;
+      rawSchemaVersion: number | null;
+      error: string;
+    };
+
+export type DataExportDiagnostics = {
+  at: string;
+  filename: string;
+  schemaVersion: number;
+  appName: string;
+  counts: {
+    categories: number;
+    pages: number;
+    matrix: number;
+    templates: number;
+    communications: number;
+  };
+};
 
 // ── Default / empty data ─────────────────────────────────────────────────────
 
@@ -96,8 +123,6 @@ export const EMPTY_DATA: AppData = {
     },
     deployment: {},
     integration: {
-      storageMode: "file-local",
-      dataEndpointPath: "/app-data",
       uploadEndpointPath: DEFAULT_UPLOAD_ENDPOINT_PATH,
     },
   },
@@ -125,98 +150,7 @@ export function isValidAppData(value: unknown): value is AppData {
   );
 }
 
-// ── localStorage persistence ──────────────────────────────────────────────────
-
-export function loadFromLocalStorage(): AppData | null {
-  try {
-    const raw = localStorage.getItem(LS_KEY);
-    if (!raw) return null;
-    const parsed: unknown = JSON.parse(raw);
-    if (!isValidAppData(parsed)) {
-      console.warn("localStorage data invalid — discarding.");
-      localStorage.removeItem(LS_KEY);
-      return null;
-    }
-    return parsed;
-  } catch {
-    return null;
-  }
-}
-
-export function saveToLocalStorage(data: AppData): LocalStorageSaveResult {
-  try {
-    localStorage.setItem(LS_KEY, JSON.stringify(data));
-    return { ok: true };
-  } catch (error) {
-    console.warn("Could not persist data to localStorage.");
-    return {
-      ok: false,
-      error: error instanceof Error ? error.message : "Nieznany błąd localStorage.",
-    };
-  }
-}
-
-export function clearLocalStorage(): void {
-  localStorage.removeItem(LS_KEY);
-}
-
-/** Returns true if app data is currently persisted under the local override key. */
-export function hasStoredLocalOverride(): boolean {
-  try {
-    return localStorage.getItem(LS_KEY) !== null;
-  } catch {
-    return false;
-  }
-}
-
-/** Returns true if the app currently has persisted local overrides in localStorage. */
-export function hasLocalOverride(): boolean {
-  return hasStoredLocalOverride();
-}
-
-// ── Bundled JSON fetch ────────────────────────────────────────────────────────
-
-export async function fetchBundledData(): Promise<AppData | null> {
-  // Build a base-aware URL so the fetch works whether the app is served from
-  // the root ("/") or a sub-path (e.g. "/altcloud/").
-  // import.meta.env.BASE_URL is injected by Vite and matches the `base`
-  // option in vite.config.ts (defaults to "/" in dev).
-  const base = import.meta.env.BASE_URL ?? "/";
-  const url = `${base.endsWith("/") ? base : `${base}/`}altcloud-data.json`;
-  const cacheBustedUrl = `${url}${url.includes("?") ? "&" : "?"}v=${Date.now()}`;
-  try {
-    const response = await fetch(cacheBustedUrl, {
-      cache: "no-store",
-      headers: {
-        "Cache-Control": "no-cache, no-store, max-age=0",
-        Pragma: "no-cache",
-      },
-    });
-    if (!response.ok) {
-      console.error(
-        `[altcloud] Failed to fetch bundled data: HTTP ${response.status} for ${cacheBustedUrl}`
-      );
-      return null;
-    }
-    const parsed: unknown = await response.json();
-    if (!isValidAppData(parsed)) {
-      console.error(
-        "[altcloud] altcloud-data.json fetched successfully but has an unexpected shape. " +
-          "Check that the file is a valid AltCloud data export."
-      );
-      return null;
-    }
-    return parsed;
-  } catch (err) {
-    console.error(
-      `[altcloud] Could not fetch bundled data from ${url}:`,
-      err instanceof Error ? err.message : err
-    );
-    return null;
-  }
-}
-
-// ── Boot load: localStorage first, then bundled JSON, then EMPTY_DATA ────────
+// ── Boot load ─────────────────────────────────────────────────────────────────
 
 function readSchemaVersion(value: unknown): number | null {
   if (!value || typeof value !== "object") return null;
@@ -458,9 +392,7 @@ export function migrateAppDataWithReport(data: AppData): { data: AppData; report
         ...existingSystem.deployment,
       },
       integration: {
-        storageMode: existingSystem.integration?.storageMode ?? "file-local",
         apiBaseUrl: existingSystem.integration?.apiBaseUrl,
-        dataEndpointPath: existingSystem.integration?.dataEndpointPath ?? "/app-data",
         uploadEndpointPath: normalizedUploadEndpointPath,
       },
     },
@@ -502,16 +434,6 @@ export function migrateAppData(data: AppData): AppData {
   return migrateAppDataWithReport(data).data;
 }
 
-export async function loadAppData(): Promise<AppData> {
-  const local = loadFromLocalStorage();
-  if (local) return migrateAppData(local);
-
-  const bundled = await fetchBundledData();
-  if (bundled) return migrateAppData(bundled);
-
-  return EMPTY_DATA;
-}
-
 // ── Export ────────────────────────────────────────────────────────────────────
 
 export function buildExportJson(data: AppData): string {
@@ -522,7 +444,7 @@ export function buildExportJson(data: AppData): string {
   return JSON.stringify(exportable, null, 2);
 }
 
-export function triggerJsonDownload(data: AppData, filename = "altcloud-data.json"): void {
+export function triggerJsonDownload(data: AppData, filename = "intranet-export.json"): void {
   const json = buildExportJson(data);
   const blob = new Blob([json], { type: "application/json" });
   const url = URL.createObjectURL(blob);

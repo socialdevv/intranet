@@ -12,7 +12,6 @@ import type { PlatformLinkRecord } from "./platform-links";
 export {
   getBootstrapPreviewDataSourceMode as getPlatformDataSourceMode,
   isApiBootstrapPreviewEnabled as isApiPlatformDataSourceEnabled,
-  resolveBootstrapPreviewDataSourceMode as resolvePlatformDataSourceMode,
 } from "./bootstrap-preview-runtime";
 
 export type PlatformDataSourceMode = BootstrapPreviewDataSourceMode;
@@ -118,6 +117,7 @@ export type PlatformBootstrapResponse = {
 
 export type PlatformBootstrapPreviewModel = {
   sourceMode: "api";
+  authMode: string;
   currentUser: {
     displayName: string;
     email: string;
@@ -181,6 +181,7 @@ export function adaptPlatformBootstrapToPreview(
 
   return {
     sourceMode: "api",
+    authMode: payload.data.session.authMode,
     currentUser: {
       displayName: payload.data.user.displayName,
       email: payload.data.user.email,

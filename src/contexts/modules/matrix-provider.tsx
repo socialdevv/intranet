@@ -1,6 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { MatrixDecision } from "@/lib/types/domain";
-import { generateId } from "@/lib/utils";
 import {
   adaptProjectMatrix,
   adaptProjectMatrixItems,
@@ -14,10 +13,12 @@ import {
   type UpdateProjectMatrixInput,
 } from "@/lib/api/project-matrix";
 import { useProjectScope } from "@/contexts/project-scope-provider";
-import type { ModuleDataSource, ProjectModuleDeps } from "./shared-module-types";
+import type { ProjectModuleDeps } from "./shared-module-types";
+
+const LEGACY_MUTATION_ERROR = "Legacy mutations are disabled in API mode";
 
 export type MatrixModuleState = {
-  source: ModuleDataSource;
+  source: "api";
   isLoading: boolean;
   isMutating: boolean;
   error: string | null;
@@ -82,14 +83,6 @@ export function MatrixProvider({
   const [matrixError, setMatrixError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!deps.apiMode) {
-      setApiMatrix(null);
-      setIsMatrixLoading(false);
-      setIsMatrixMutating(false);
-      setMatrixError(null);
-      return;
-    }
-
     const controller = new AbortController();
 
     setIsMatrixLoading(true);
@@ -123,105 +116,45 @@ export function MatrixProvider({
     return () => {
       controller.abort();
     };
-  }, [deps.activeProjectSlug, deps.apiMode, deps.apiRuntimeRefreshKey]);
+  }, [deps.activeProjectSlug, deps.apiRuntimeRefreshKey]);
 
-  const matrix = useMemo<MatrixDecision[]>(
-    () =>
-      deps.apiMode
-        ? apiMatrix ?? (deps.legacyData.matrix ?? [])
-        : (deps.legacyData.matrix ?? []),
-    [apiMatrix, deps.apiMode, deps.legacyData.matrix]
-  );
+  const matrix = useMemo<MatrixDecision[]>(() => apiMatrix ?? [], [apiMatrix]);
 
   const matrixCategoryOrder = useMemo(() => {
-    const persisted =
-      projectConfiguration.rules?.matrixCategoryOrder ?? deps.legacyData.matrixCategoryOrder ?? [];
+    const persisted = projectConfiguration.rules?.matrixCategoryOrder ?? [];
     const allCats = [...new Set(matrix.map((m) => m.category))];
     const extra = allCats.filter((c) => !persisted.includes(c));
     return [...persisted.filter((c) => allCats.includes(c)), ...extra];
-  }, [deps.legacyData.matrixCategoryOrder, matrix, projectConfiguration]);
+  }, [matrix, projectConfiguration]);
 
   const addMatrixEntry = useCallback(
-    (entry: Omit<MatrixDecision, "id"> & { id?: string }): MatrixDecision => {
-      const legacyMatrix = deps.legacyData.matrix ?? [];
-      const maxOrder = legacyMatrix
-        .filter((matrixEntry) => matrixEntry.category === entry.category)
-        .reduce((mx, matrixEntry) => Math.max(mx, matrixEntry.sortOrder ?? 0), -1);
-      const full: MatrixDecision = {
-        ...entry,
-        id: entry.id ?? generateId("matrix"),
-        sortOrder: maxOrder + 1,
-      };
-      deps.setLegacyData({ ...deps.legacyData, matrix: [...legacyMatrix, full] });
-      return full;
+    (_entry: Omit<MatrixDecision, "id"> & { id?: string }): MatrixDecision => {
+      throw new Error(LEGACY_MUTATION_ERROR);
     },
-    [deps]
+    []
   );
 
-  const updateMatrixEntry = useCallback(
-    (updated: MatrixDecision): void => {
-      deps.setLegacyData({
-        ...deps.legacyData,
-        matrix: (deps.legacyData.matrix ?? []).map((m) => (m.id === updated.id ? updated : m)),
-      });
-    },
-    [deps]
-  );
+  const updateMatrixEntry = useCallback((_updated: MatrixDecision): void => {
+    throw new Error(LEGACY_MUTATION_ERROR);
+  }, []);
 
-  const deleteMatrixEntry = useCallback(
-    (id: string): void => {
-      deps.setLegacyData({
-        ...deps.legacyData,
-        matrix: (deps.legacyData.matrix ?? []).filter((m) => m.id !== id),
-      });
-    },
-    [deps]
-  );
+  const deleteMatrixEntry = useCallback((_id: string): void => {
+    throw new Error(LEGACY_MUTATION_ERROR);
+  }, []);
 
-  const reorderMatrixCategories = useCallback(
-    (orderedCategoryNames: string[]): void => {
-      if (deps.apiMode) {
-        return;
-      }
-
-      deps.setLegacyData({
-        ...deps.legacyData,
-        matrixCategoryOrder: orderedCategoryNames,
-        configuration: {
-          ...deps.legacyData.configuration,
-          rules: {
-            ...deps.legacyData.configuration?.rules,
-            matrixCategoryOrder: orderedCategoryNames,
-          },
-        },
-      });
-    },
-    [deps]
-  );
+  const reorderMatrixCategories = useCallback((_orderedCategoryNames: string[]): void => {
+    throw new Error(LEGACY_MUTATION_ERROR);
+  }, []);
 
   const reorderMatrixInCategory = useCallback(
-    (categoryName: string, orderedItems: MatrixDecision[]): void => {
-      if (deps.apiMode) {
-        return;
-      }
-
-      const updated = (deps.legacyData.matrix ?? []).map((m) => {
-        if (m.category !== categoryName) return m;
-        const idx = orderedItems.findIndex((o) => o.id === m.id);
-        return idx === -1 ? m : { ...m, sortOrder: idx };
-      });
-      deps.setLegacyData({ ...deps.legacyData, matrix: updated });
+    (_categoryName: string, _orderedItems: MatrixDecision[]): void => {
+      throw new Error(LEGACY_MUTATION_ERROR);
     },
-    [deps]
+    []
   );
 
   const createManagedMatrixEntry = useCallback(
     async (input: CreateProjectMatrixInput): Promise<void> => {
-      if (!deps.apiMode) {
-        addMatrixEntry(input);
-        return;
-      }
-
       if (apiMatrix === null) {
         throw new Error("Backend matrix is not ready yet.");
       }
@@ -240,43 +173,11 @@ export function MatrixProvider({
         setIsMatrixMutating(false);
       }
     },
-    [addMatrixEntry, apiMatrix, deps.activeProjectSlug, deps.apiMode]
+    [apiMatrix, deps.activeProjectSlug]
   );
 
   const editManagedMatrixEntry = useCallback(
     async (id: string, input: UpdateProjectMatrixInput): Promise<void> => {
-      if (!deps.apiMode) {
-        const existing = (deps.legacyData.matrix ?? []).find((entry) => entry.id === id);
-
-        if (!existing) {
-          throw new Error("Wpis macierzy nie został znaleziony.");
-        }
-
-        const nextCategory = input.category ?? existing.category;
-        const nextSortOrder =
-          nextCategory === existing.category
-            ? existing.sortOrder
-            : (deps.legacyData.matrix ?? [])
-                .filter((entry) => entry.id !== id && entry.category === nextCategory)
-                .reduce((maxOrder, entry) => Math.max(maxOrder, entry.sortOrder ?? 0), -1) + 1;
-
-        updateMatrixEntry({
-          ...existing,
-          category: nextCategory,
-          subcategory: input.subcategory ?? existing.subcategory,
-          keywords: input.keywords ?? existing.keywords,
-          description: input.description ?? existing.description,
-          slaDays: input.slaDays ?? existing.slaDays,
-          instructions: input.instructions ?? existing.instructions,
-          additionalNotes: input.additionalNotes ?? existing.additionalNotes,
-          defaultDepartment: input.defaultDepartment ?? existing.defaultDepartment,
-          conditions: input.conditions ?? existing.conditions,
-          linkedTemplateIds: input.linkedTemplateIds ?? existing.linkedTemplateIds,
-          sortOrder: nextSortOrder,
-        });
-        return;
-      }
-
       if (apiMatrix === null) {
         throw new Error("Backend matrix is not ready yet.");
       }
@@ -301,16 +202,11 @@ export function MatrixProvider({
         setIsMatrixMutating(false);
       }
     },
-    [apiMatrix, deps, updateMatrixEntry]
+    [apiMatrix, deps.activeProjectSlug]
   );
 
   const removeManagedMatrixEntry = useCallback(
     async (id: string): Promise<void> => {
-      if (!deps.apiMode) {
-        deleteMatrixEntry(id);
-        return;
-      }
-
       if (apiMatrix === null) {
         throw new Error("Backend matrix is not ready yet.");
       }
@@ -329,16 +225,11 @@ export function MatrixProvider({
         setIsMatrixMutating(false);
       }
     },
-    [apiMatrix, deleteMatrixEntry, deps.activeProjectSlug, deps.apiMode]
+    [apiMatrix, deps.activeProjectSlug]
   );
 
   const reorderManagedMatrixCategories = useCallback(
     (orderedCategoryNames: string[]): void => {
-      if (!deps.apiMode) {
-        reorderMatrixCategories(orderedCategoryNames);
-        return;
-      }
-
       if (apiMatrix === null) {
         setMatrixError("Backend matrix is not ready yet.");
         return;
@@ -350,7 +241,7 @@ export function MatrixProvider({
         !projectBootstrapState.preview.access.isLocked &&
         projectBootstrapState.routeContext.projectSlug === activeProjectSlug
           ? projectBootstrapState.preview.configuration.rules.matrixCategoryOrder
-          : deps.legacyData.matrixCategoryOrder ?? [];
+          : (projectConfiguration.rules?.matrixCategoryOrder ?? []);
 
       setIsMatrixMutating(true);
       setMatrixError(null);
@@ -373,21 +264,14 @@ export function MatrixProvider({
     [
       activeProjectSlug,
       apiMatrix,
-      deps.apiMode,
-      deps.legacyData.matrixCategoryOrder,
       projectBootstrapState,
-      reorderMatrixCategories,
+      projectConfiguration.rules?.matrixCategoryOrder,
       syncProjectBootstrapMatrixCategoryOrder,
     ]
   );
 
   const reorderManagedMatrixInCategory = useCallback(
     (categoryName: string, orderedItems: MatrixDecision[]): void => {
-      if (!deps.apiMode) {
-        reorderMatrixInCategory(categoryName, orderedItems);
-        return;
-      }
-
       if (apiMatrix === null) {
         setMatrixError("Backend matrix is not ready yet.");
         return;
@@ -425,17 +309,17 @@ export function MatrixProvider({
         }
       })();
     },
-    [activeProjectSlug, apiMatrix, deps.apiMode, reorderMatrixInCategory]
+    [activeProjectSlug, apiMatrix]
   );
 
   const matrixModule = useMemo<MatrixModuleState>(
     () => ({
-      source: deps.apiMode ? "api" : "legacy",
+      source: "api",
       isLoading: isMatrixLoading,
       isMutating: isMatrixMutating,
       error: matrixError,
-      canWrite: !deps.apiMode || apiMatrix !== null,
-      canReorder: !deps.apiMode || (apiMatrix !== null && bootstrapProjectConfiguration !== null),
+      canWrite: apiMatrix !== null,
+      canReorder: apiMatrix !== null && bootstrapProjectConfiguration !== null,
       createEntry: createManagedMatrixEntry,
       editEntry: editManagedMatrixEntry,
       removeEntry: removeManagedMatrixEntry,
@@ -446,7 +330,6 @@ export function MatrixProvider({
       apiMatrix,
       bootstrapProjectConfiguration,
       createManagedMatrixEntry,
-      deps.apiMode,
       editManagedMatrixEntry,
       isMatrixLoading,
       isMatrixMutating,

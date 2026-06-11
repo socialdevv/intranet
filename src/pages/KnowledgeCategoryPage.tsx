@@ -2,6 +2,7 @@ import { Link, useParams, Navigate } from "react-router-dom";
 import AppShell from "@/components/layout/app-shell";
 import { useAuth } from "@/contexts/auth-context";
 import { useData } from "@/contexts/data-context";
+import { useProjectRouting } from "@/hooks/useProjectRouting";
 import { canEditContent } from "@/lib/auth/authorization";
 import {
   ROUTES,
@@ -13,6 +14,7 @@ import {
 export default function KnowledgeCategoryPage() {
   const { categorySlug } = useParams<{ categorySlug: string }>();
   const { user } = useAuth();
+  const { resolveHref } = useProjectRouting();
   const { categories, pages, isLoading } = useData();
 
   const category = categories.find((c) => c.slug === categorySlug);
@@ -71,7 +73,7 @@ export default function KnowledgeCategoryPage() {
 
           {isAdmin && !isLoading && category && (
             <Link
-              to={`${adminArticleEditorPath("nowy")}?categoryId=${category.id}`}
+              to={resolveHref(`${adminArticleEditorPath("nowy")}?categoryId=${category.id}`)}
               className="shrink-0 inline-flex h-9 items-center gap-1.5 rounded-lg bg-[#1d4f91] px-4 text-sm font-medium text-white transition hover:bg-[#1a4580]"
             >
               + Nowy artykuł

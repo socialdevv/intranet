@@ -18,7 +18,6 @@ export function useMediaUpload() {
 
   return {
     uploadAsset,
-    uploadMode: persistenceState.storageMode,
     uploadConfigured: persistenceState.uploadCapability === "configured",
     uploadCapabilityReason: persistenceState.uploadCapabilityReason,
   };

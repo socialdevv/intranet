@@ -25,6 +25,14 @@ function createEnv(nodeEnv: AppEnv["NODE_ENV"]): AppEnv {
     LOG_LEVEL: "silent",
     DATABASE_URL: process.env.DATABASE_URL ?? "",
     CORS_ALLOWED_ORIGINS: "",
+    RATE_LIMIT_MAX: 200,
+    RATE_LIMIT_TIME_WINDOW: "1 minute",
+    UPLOAD_MAX_FILE_SIZE_BYTES: 314_572_800,
+    UPLOAD_RATE_LIMIT_MAX: 5,
+    UPLOAD_RATE_LIMIT_TIME_WINDOW: "1 minute",
+    ENABLE_SWAGGER: false,
+    ENABLE_PREVIEW_AUTH: false,
+    STATIC_WEB_ROOT: "",
     MEDIA_STORAGE_ROOT: "./runtime-media",
   };
 }
@@ -189,7 +197,7 @@ before(async () => {
   await ensureFixtureData();
   const env = createEnv("test");
   await ensureMediaStorageDirectories(env);
-  app = buildApp(env);
+  app = await buildApp(env);
   await app.ready();
 });
 
@@ -409,15 +417,12 @@ test("quality hardening critical backend-backed flows", async (t) => {
   });
 
   await t.test("dev header auth is blocked in production mode", async () => {
-    const originalNodeEnv = process.env.NODE_ENV;
-    process.env.NODE_ENV = "production";
+    const productionEnv = createEnv("production");
+    await ensureMediaStorageDirectories(productionEnv);
+    const productionApp = await buildApp(productionEnv);
+    await productionApp.ready();
 
     try {
-      const productionEnv = createEnv("production");
-      await ensureMediaStorageDirectories(productionEnv);
-      const productionApp = buildApp(productionEnv);
-      await productionApp.ready();
-
       const response = await injectJson<{ error: { code: string } }>(productionApp, {
         method: "GET",
         url: "/api/v1/platform/bootstrap",
@@ -426,9 +431,42 @@ test("quality hardening critical backend-backed flows", async (t) => {
 
       assert.equal(response.statusCode, 404);
       assert.equal(response.body.error.code, "DEV_USER_NOT_FOUND");
-      await productionApp.close();
     } finally {
-      process.env.NODE_ENV = originalNodeEnv;
+      await productionApp.close();
+    }
+  });
+
+  await t.test("preview auth honors x-dev-user-email in production mode", async () => {
+    const productionEnv = {
+      ...createEnv("production"),
+      ENABLE_PREVIEW_AUTH: true,
+    };
+    await ensureMediaStorageDirectories(productionEnv);
+    const productionApp = await buildApp(productionEnv);
+    await productionApp.ready();
+
+    try {
+      const withHeader = await injectJson<{ data: { user: { email: string } } }>(productionApp, {
+        method: "GET",
+        url: "/api/v1/platform/bootstrap",
+        headers: headerFor(SUPER_ADMIN_EMAIL),
+      });
+
+      assert.equal(withHeader.statusCode, 200);
+      assert.equal(withHeader.body.data.user.email, SUPER_ADMIN_EMAIL);
+
+      const withoutHeader = await injectJson<{ data: { session: { authMode: string } } }>(
+        productionApp,
+        {
+          method: "GET",
+          url: "/api/v1/platform/bootstrap",
+        }
+      );
+
+      assert.equal(withoutHeader.statusCode, 200);
+      assert.equal(withoutHeader.body.data.session.authMode, "preview_header");
+    } finally {
+      await productionApp.close();
     }
   });
 });

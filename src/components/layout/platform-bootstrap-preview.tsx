@@ -4,10 +4,6 @@ import { usePlatformBootstrapPreview } from "@/hooks/usePlatformBootstrapPreview
 export default function PlatformBootstrapPreview() {
   const state = usePlatformBootstrapPreview();
 
-  if (state.status === "disabled") {
-    return null;
-  }
-
   return (
     <section className="mb-6 rounded-2xl border border-[#c7d7ea] bg-[#eef5fb] px-4 py-4 shadow-[0_1px_0_rgba(15,23,42,0.03)] dark:border-[#1e3a5f] dark:bg-[#0f2340]">
       <div className="flex flex-wrap items-center justify-between gap-3">

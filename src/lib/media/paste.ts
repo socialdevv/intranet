@@ -7,6 +7,7 @@ import type {
   MediaUploadRequest,
   MediaUploadResult,
 } from "@/lib/media/upload";
+import { isUploadPolicyApiErrorCode } from "@/lib/media/upload-policy";
 
 export type UploadAssetFn = (
   request: MediaUploadRequest
@@ -153,6 +154,18 @@ export async function resolveClipboardImageCandidate(
       src: normalizeMediaSrc(uploadResult.asset.src),
       alt: fileNameToAlt(file.name),
       via: "api-upload",
+    };
+  }
+
+  if (
+    isUploadPolicyApiErrorCode(uploadResult.apiErrorCode) ||
+    uploadResult.httpStatus === 400 ||
+    uploadResult.httpStatus === 403 ||
+    uploadResult.httpStatus === 415
+  ) {
+    return {
+      ok: false,
+      note: uploadResult.message,
     };
   }
 

@@ -12,17 +12,18 @@ import {
 } from "./project-access.js";
 import { buildHomepagePlatformAnnouncements } from "./platform-announcements.js";
 import { buildHomepagePlatformLinks } from "./platform-links.js";
+import {
+  DEFAULT_DEV_USER_EMAIL,
+  DEV_USER_HEADER_NAME,
+} from "./platform-bootstrap-constants.js";
+import {
+  isDevHeaderAuthEnabled,
+  isPreviewAuthEnabled,
+  resolveAuthFallbackEmail,
+} from "./preview-auth.js";
 
-export const DEV_USER_HEADER_NAME = "x-dev-user-email";
-export const DEFAULT_DEV_USER_EMAIL = "super.admin@intranet.local";
-
-/**
- * Development-only identity resolution guard.
- * Header-based user selection must never be treated as production authentication.
- */
-export function isDevHeaderAuthEnabled(): boolean {
-  return process.env.NODE_ENV !== "production";
-}
+export { DEFAULT_DEV_USER_EMAIL, DEV_USER_HEADER_NAME } from "./platform-bootstrap-constants.js";
+export { isDevHeaderAuthEnabled } from "./preview-auth.js";
 
 export type ResolvedUser = {
   id: string;
@@ -150,7 +151,7 @@ export async function resolveCurrentPlatformUser(prisma: PrismaClient, headerVal
     return null;
   }
 
-  const requestedEmail = headerValue?.trim() || DEFAULT_DEV_USER_EMAIL;
+  const requestedEmail = headerValue?.trim() || (await resolveAuthFallbackEmail(prisma));
 
   const user = await prisma.user.findFirst({
     where: {
@@ -238,7 +239,7 @@ export async function buildPlatformBootstrap(prisma: PrismaClient, currentUser: 
     session: {
       isAuthenticated: true,
       sessionId: null,
-      authMode: "development_header",
+      authMode: isPreviewAuthEnabled() ? "preview_header" : "development_header",
       expiresAt: null,
       impersonation: {
         active: false,

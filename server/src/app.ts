@@ -1,36 +1,32 @@
 import { readFileSync } from "node:fs";
-import Fastify from "fastify";
+import Fastify, { type FastifyInstance } from "fastify";
 import fastifyCors from "@fastify/cors";
 import fastifyMultipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
 import type { AppEnv } from "./config/env.js";
+import { createCorsOriginValidator, resolveAllowedOrigins } from "./lib/cors-policy.js";
 import {
   MEDIA_KIND_FOLDERS,
   resolveMediaDiskDirectory,
 } from "./lib/media-storage.js";
+import frontendStaticPlugin from "./plugins/frontend-static.js";
+import metricsPlugin from "./plugins/metrics.js";
 import prismaPlugin from "./plugins/prisma.js";
+import rateLimitPlugin from "./plugins/rate-limit.js";
+import {
+  isSwaggerUiEnabled,
+  swaggerRegistration,
+  swaggerUiRegistration,
+} from "./plugins/swagger.js";
+import {
+  configurePreviewAuth,
+  isPreviewAuthEnabled,
+  PREVIEW_AUTH_SECURITY_WARNING,
+} from "./lib/preview-auth.js";
 import apiRoutes from "./routes/index.js";
 
 const SERVICE_NAME = "intranetv2-mock-api";
 const API_VERSION = "v1";
-
-function parseAllowedOrigins(env: AppEnv): Set<string> {
-  return new Set(
-    (env.CORS_ALLOWED_ORIGINS ?? "")
-      .split(",")
-      .map((origin) => origin.trim())
-      .filter(Boolean)
-  );
-}
-
-function isLoopbackOrigin(origin: string): boolean {
-  try {
-    const parsed = new URL(origin);
-    return parsed.hostname === "127.0.0.1" || parsed.hostname === "localhost";
-  } catch {
-    return false;
-  }
-}
 
 function resolveServiceVersion(): string {
   try {
@@ -43,77 +39,93 @@ function resolveServiceVersion(): string {
   }
 }
 
-export function buildApp(env: AppEnv) {
+export async function buildApp(env: AppEnv): Promise<FastifyInstance> {
   const app = Fastify({
     logger: {
       level: env.LOG_LEVEL,
+      // Application/system logs go to stdout only (Pino). Business audit events
+      // are persisted separately via the AuditLog Prisma model.
+      stream: process.stdout,
     },
+    disableRequestLogging: false,
   });
 
-  if (env.NODE_ENV !== "production") {
+  configurePreviewAuth(env);
+
+  if (isPreviewAuthEnabled()) {
+    app.log.warn(PREVIEW_AUTH_SECURITY_WARNING);
+  } else if (env.NODE_ENV !== "production") {
     app.log.warn(
       "Development header-based auth (x-dev-user-email) is enabled. This mode is non-production only."
     );
   }
 
-  const allowedOrigins = parseAllowedOrigins(env);
+  const allowedOrigins = resolveAllowedOrigins(env);
 
-  void app.register(fastifyCors, {
-    origin(origin, callback) {
-      if (!origin) {
-        callback(null, true);
-        return;
-      }
+  if (env.NODE_ENV === "production" && allowedOrigins.size === 0) {
+    app.log.warn(
+      "CORS_ALLOWED_ORIGINS is empty in production. Cross-origin browser requests will be rejected."
+    );
+  }
 
-      if (allowedOrigins.has(origin)) {
-        callback(null, true);
-        return;
-      }
+  const serviceVersion = resolveServiceVersion();
 
-      if (env.NODE_ENV !== "production" && isLoopbackOrigin(origin)) {
-        callback(null, true);
-        return;
-      }
-
-      callback(null, false);
-    },
+  await app.register(metricsPlugin, { serviceName: SERVICE_NAME });
+  await app.register(rateLimitPlugin, { env });
+  await app.register(fastifyCors, {
+    origin: createCorsOriginValidator(env, allowedOrigins),
+  });
+  await app.register(swaggerRegistration, {
+    serviceName: SERVICE_NAME,
+    serviceVersion,
+    apiVersion: API_VERSION,
   });
 
-  void app.register(fastifyMultipart, {
+  await app.register(fastifyMultipart, {
     limits: {
       files: 1,
-      fileSize: 500 * 1024 * 1024,
+      fileSize: env.UPLOAD_MAX_FILE_SIZE_BYTES,
     },
   });
 
-  void app.register(fastifyStatic, {
+  await app.register(fastifyStatic, {
     root: resolveMediaDiskDirectory(env, "image"),
     prefix: `/${MEDIA_KIND_FOLDERS.image}/`,
     decorateReply: false,
   });
 
-  void app.register(fastifyStatic, {
+  await app.register(fastifyStatic, {
     root: resolveMediaDiskDirectory(env, "video"),
     prefix: `/${MEDIA_KIND_FOLDERS.video}/`,
     decorateReply: false,
   });
 
-  void app.register(fastifyStatic, {
+  await app.register(fastifyStatic, {
     root: resolveMediaDiskDirectory(env, "file"),
     prefix: `/${MEDIA_KIND_FOLDERS.file}/`,
     decorateReply: false,
   });
 
-  void app.register(prismaPlugin, { env });
-  void app.register(apiRoutes, {
+  await app.register(prismaPlugin, { env });
+  await app.register(apiRoutes, {
     prefix: `/api/${API_VERSION}`,
     meta: {
       serviceName: SERVICE_NAME,
-      serviceVersion: resolveServiceVersion(),
+      serviceVersion,
       environment: env.NODE_ENV,
       apiVersion: API_VERSION,
     },
     env,
+  });
+
+  if (isSwaggerUiEnabled(env)) {
+    await app.register(swaggerUiRegistration);
+  } else {
+    app.log.info("Swagger UI disabled for production. Set ENABLE_SWAGGER=true to expose /docs.");
+  }
+
+  await app.register(frontendStaticPlugin, {
+    staticWebRoot: env.STATIC_WEB_ROOT,
   });
 
   return app;

@@ -137,14 +137,6 @@ export function KnowledgeProvider({
   const [knowledgeError, setKnowledgeError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!deps.apiMode) {
-      setApiKnowledgeCategories(null);
-      setApiKnowledgePages(null);
-      setIsKnowledgeLoading(false);
-      setKnowledgeError(null);
-      return;
-    }
-
     const controller = new AbortController();
 
     setIsKnowledgeLoading(true);
@@ -185,23 +177,14 @@ export function KnowledgeProvider({
     return () => {
       controller.abort();
     };
-  }, [deps.activeProjectSlug, deps.apiMode, deps.apiRuntimeRefreshKey]);
+  }, [deps.activeProjectSlug, deps.apiRuntimeRefreshKey]);
 
   const categories = useMemo<KnowledgeCategoryEntry[]>(
-    () =>
-      deps.apiMode
-        ? apiKnowledgeCategories ?? (deps.legacyData.categories ?? [])
-        : (deps.legacyData.categories ?? []),
-    [apiKnowledgeCategories, deps.apiMode, deps.legacyData.categories]
+    () => apiKnowledgeCategories ?? [],
+    [apiKnowledgeCategories]
   );
 
-  const pages = useMemo<KnowledgePage[]>(
-    () =>
-      deps.apiMode
-        ? apiKnowledgePages ?? (deps.legacyData.pages ?? [])
-        : (deps.legacyData.pages ?? []),
-    [apiKnowledgePages, deps.apiMode, deps.legacyData.pages]
-  );
+  const pages = useMemo<KnowledgePage[]>(() => apiKnowledgePages ?? [], [apiKnowledgePages]);
 
   const categoryTree = useMemo(
     () => buildCategoryTree(categories, pages),
@@ -210,23 +193,13 @@ export function KnowledgeProvider({
 
   const contributesToAppLoading = useMemo(
     () =>
-      deps.apiMode &&
       isKnowledgeLoading &&
       (apiKnowledgeCategories === null || apiKnowledgePages === null),
-    [apiKnowledgeCategories, apiKnowledgePages, deps.apiMode, isKnowledgeLoading]
+    [apiKnowledgeCategories, apiKnowledgePages, isKnowledgeLoading]
   );
 
   const addCategory = useCallback(
     async (cat: Omit<KnowledgeCategoryEntry, "id"> & { id?: string }): Promise<KnowledgeCategoryEntry> => {
-      if (!deps.apiMode) {
-        const full: KnowledgeCategoryEntry = { ...cat, id: cat.id ?? generateId("cat") };
-        deps.setLegacyData({
-          ...deps.legacyData,
-          categories: [...(deps.legacyData.categories ?? []), full],
-        });
-        return full;
-      }
-
       if (apiKnowledgeCategories === null) {
         throw new Error("Backend categories are not ready yet.");
       }
@@ -250,22 +223,11 @@ export function KnowledgeProvider({
         throw new Error(message);
       }
     },
-    [apiKnowledgeCategories, deps]
+    [apiKnowledgeCategories, deps.activeProjectSlug]
   );
 
   const updateCategory = useCallback(
     async (updated: KnowledgeCategoryEntry): Promise<void> => {
-      if (!deps.apiMode) {
-        deps.setLegacyData({
-          ...deps.legacyData,
-          categories: (deps.legacyData.categories ?? []).map((category) =>
-            category.id === updated.id ? updated : category
-          ),
-          pages: syncPagesWithUpdatedCategory(deps.legacyData.pages ?? [], updated),
-        });
-        return;
-      }
-
       if (apiKnowledgeCategories === null || apiKnowledgePages === null) {
         throw new Error("Backend knowledge base is not ready yet.");
       }
@@ -297,39 +259,11 @@ export function KnowledgeProvider({
         throw new Error(message);
       }
     },
-    [apiKnowledgeCategories, apiKnowledgePages, deps]
+    [apiKnowledgeCategories, apiKnowledgePages, deps.activeProjectSlug]
   );
 
   const deleteCategory = useCallback(
     async (id: string): Promise<{ ok: true } | { ok: false; error: string }> => {
-      const legacyCategories = deps.legacyData.categories ?? [];
-      const legacyPages = deps.legacyData.pages ?? [];
-
-      if (!deps.apiMode) {
-        const subcats = legacyCategories.filter((category) => category.parentId === id);
-        if (subcats.length > 0) {
-          const noun = subcats.length === 1 ? "podkategorię" : "podkategorie";
-          return {
-            ok: false,
-            error: `Nie można usunąć: ta kategoria ma ${subcats.length} ${noun}. Najpierw je usuń.`,
-          };
-        }
-        const linked = legacyPages.filter((page) => page.categoryId === id);
-        if (linked.length > 0) {
-          const art = linked.length === 1 ? "artykuł" : "artykuły";
-          const verb = linked.length === 1 ? "jest" : "są";
-          return {
-            ok: false,
-            error: `Nie można usunąć: w tej kategorii ${verb} ${linked.length} ${art}. Najpierw je przenieś lub usuń.`,
-          };
-        }
-        deps.setLegacyData({
-          ...deps.legacyData,
-          categories: legacyCategories.filter((category) => category.id !== id),
-        });
-        return { ok: true };
-      }
-
       if (apiKnowledgeCategories === null) {
         return {
           ok: false,
@@ -355,26 +289,11 @@ export function KnowledgeProvider({
         };
       }
     },
-    [apiKnowledgeCategories, deps]
+    [apiKnowledgeCategories, deps.activeProjectSlug]
   );
 
   const addPage = useCallback(
     async (page: Omit<KnowledgePage, "id"> & { id?: string }): Promise<KnowledgePage> => {
-      const legacyPages = deps.legacyData.pages ?? [];
-
-      if (!deps.apiMode) {
-        const maxOrder = legacyPages
-          .filter((existingPage) => existingPage.categoryId === page.categoryId)
-          .reduce((mx, existingPage) => Math.max(mx, existingPage.sortOrder ?? 0), -1);
-        const full: KnowledgePage = {
-          ...page,
-          id: page.id ?? generateId("page"),
-          sortOrder: maxOrder + 1,
-        } as KnowledgePage;
-        deps.setLegacyData({ ...deps.legacyData, pages: [...legacyPages, full] });
-        return full;
-      }
-
       if (apiKnowledgePages === null) {
         throw new Error("Backend knowledge articles are not ready yet.");
       }
@@ -410,21 +329,11 @@ export function KnowledgeProvider({
         throw new Error(message);
       }
     },
-    [apiKnowledgePages, deps]
+    [apiKnowledgePages, deps.activeProjectSlug]
   );
 
   const updatePage = useCallback(
     async (updated: KnowledgePage): Promise<void> => {
-      if (!deps.apiMode) {
-        deps.setLegacyData({
-          ...deps.legacyData,
-          pages: (deps.legacyData.pages ?? []).map((page) =>
-            page.id === updated.id ? updated : page
-          ),
-        });
-        return;
-      }
-
       if (apiKnowledgePages === null) {
         throw new Error("Backend knowledge articles are not ready yet.");
       }
@@ -460,19 +369,11 @@ export function KnowledgeProvider({
         throw new Error(message);
       }
     },
-    [apiKnowledgePages, deps]
+    [apiKnowledgePages, deps.activeProjectSlug]
   );
 
   const deletePage = useCallback(
     async (id: string): Promise<void> => {
-      if (!deps.apiMode) {
-        deps.setLegacyData({
-          ...deps.legacyData,
-          pages: (deps.legacyData.pages ?? []).filter((page) => page.id !== id),
-        });
-        return;
-      }
-
       if (apiKnowledgePages === null) {
         throw new Error("Backend knowledge articles are not ready yet.");
       }
@@ -491,21 +392,11 @@ export function KnowledgeProvider({
         throw new Error(message);
       }
     },
-    [apiKnowledgePages, deps]
+    [apiKnowledgePages, deps.activeProjectSlug]
   );
 
   const reorderCategories = useCallback(
     async (parentId: string | null, orderedItems: KnowledgeCategoryEntry[]): Promise<void> => {
-      if (!deps.apiMode) {
-        const updated = (deps.legacyData.categories ?? []).map((category) => {
-          if (category.parentId !== parentId) return category;
-          const idx = orderedItems.findIndex((item) => item.id === category.id);
-          return idx === -1 ? category : { ...category, sortOrder: idx };
-        });
-        deps.setLegacyData({ ...deps.legacyData, categories: updated });
-        return;
-      }
-
       if (apiKnowledgeCategories === null) {
         return;
       }
@@ -528,21 +419,11 @@ export function KnowledgeProvider({
         toast("error", message);
       }
     },
-    [apiKnowledgeCategories, deps, toast]
+    [apiKnowledgeCategories, deps.activeProjectSlug, toast]
   );
 
   const reorderPages = useCallback(
     async (categoryId: string, orderedItems: KnowledgePage[]): Promise<void> => {
-      if (!deps.apiMode) {
-        const updated = (deps.legacyData.pages ?? []).map((page) => {
-          if (page.categoryId !== categoryId) return page;
-          const idx = orderedItems.findIndex((item) => item.id === page.id);
-          return idx === -1 ? page : { ...page, sortOrder: idx };
-        });
-        deps.setLegacyData({ ...deps.legacyData, pages: updated });
-        return;
-      }
-
       if (apiKnowledgePages === null) {
         return;
       }
@@ -564,19 +445,11 @@ export function KnowledgeProvider({
         toast("error", message);
       }
     },
-    [apiKnowledgePages, deps, toast]
+    [apiKnowledgePages, deps.activeProjectSlug, toast]
   );
 
   const reorderCategoryChildren = useCallback(
     async (categoryId: string, orderedIds: string[]): Promise<void> => {
-      if (!deps.apiMode) {
-        const updated = (deps.legacyData.categories ?? []).map((category) =>
-          category.id === categoryId ? { ...category, childOrder: orderedIds } : category
-        );
-        deps.setLegacyData({ ...deps.legacyData, categories: updated });
-        return;
-      }
-
       if (apiKnowledgeCategories === null) {
         return;
       }
@@ -599,7 +472,7 @@ export function KnowledgeProvider({
         toast("error", message);
       }
     },
-    [apiKnowledgeCategories, deps, toast]
+    [apiKnowledgeCategories, deps.activeProjectSlug, toast]
   );
 
   const value = useMemo<KnowledgeContextValue>(

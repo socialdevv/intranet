@@ -5,14 +5,6 @@ export type IntegrationOutcome =
   | "failure"
   | "not-configured";
 
-export type SaveContractCode =
-  | "saved-local"
-  | "saved-memory-only"
-  | "saved-api"
-  | "saved-local-fallback"
-  | "saved-local-unconfigured"
-  | "save-failed";
-
 export type UploadContractCode =
   | "uploaded-api"
   | "not-configured"
@@ -32,27 +24,14 @@ export type IdentityContractCode =
 
 export type IntegrationCapabilityState = "configured" | "not-configured";
 
-export type IntegrationCapabilityReasonCode =
-  | "api-ready"
-  | "storage-mode-local"
-  | "api-base-url-missing";
+export type IntegrationCapabilityReasonCode = "api-ready" | "api-base-url-missing";
 
 export type IntegrationCapabilityDetails = {
   state: IntegrationCapabilityState;
   reasonCode: IntegrationCapabilityReasonCode;
 };
 
-export function resolveApiCapabilityDetails(
-  storageMode: "file-local" | "api-assisted",
-  apiConfigured: boolean
-): IntegrationCapabilityDetails {
-  if (storageMode === "file-local") {
-    return {
-      state: "not-configured",
-      reasonCode: "storage-mode-local",
-    };
-  }
-
+export function resolveUploadCapabilityDetails(apiConfigured: boolean): IntegrationCapabilityDetails {
   if (!apiConfigured) {
     return {
       state: "not-configured",

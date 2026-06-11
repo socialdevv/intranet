@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { Plus, Search, Trash2, ArrowUpDown } from "lucide-react";
 import { useData } from "@/contexts/data-context";
 import { useToast } from "@/contexts/toast-context";
+import { useProjectRouting } from "@/hooks/useProjectRouting";
 import { adminArticleEditorPath, knowledgeArticlePath } from "@/lib/routes";
 import { formatDate } from "@/lib/utils";
 import { useDragSort } from "@/hooks/useDragSort";
@@ -57,6 +58,7 @@ function CategoryOrderSection({
 export default function ArticleList() {
   const { pages, categories, deletePage, reorderPages } = useData();
   const { push: toast } = useToast();
+  const { resolveHref } = useProjectRouting();
   const [query, setQuery] = useState("");
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [orderMode, setOrderMode] = useState(false);
@@ -132,7 +134,7 @@ export default function ArticleList() {
             Kolejność
           </button>
           <Link
-            to={adminArticleEditorPath("nowy")}
+            to={resolveHref(adminArticleEditorPath("nowy"))}
             className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-[#1d4f91] px-4 text-sm font-medium text-white transition hover:bg-[#1a4580]"
           >
             <Plus size={14} />
@@ -235,7 +237,7 @@ export default function ArticleList() {
                           Podgląd
                         </Link>
                         <Link
-                          to={adminArticleEditorPath(page.id)}
+                          to={resolveHref(adminArticleEditorPath(page.id))}
                           className="text-xs font-medium text-[#1d4f91] transition hover:underline dark:text-[#60a5fa]"
                         >
                           Edytuj

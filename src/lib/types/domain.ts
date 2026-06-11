@@ -436,7 +436,6 @@ export type AppConfiguration = {
 };
 
 export type IdentitySourceMode = "pin" | "external-header" | "external-whoami";
-export type SystemStorageMode = "file-local" | "api-assisted";
 
 export type AppSystemSettings = {
   auth?: {
@@ -452,13 +451,9 @@ export type AppSystemSettings = {
     projectDisplayName?: string;
   };
   integration?: {
-    /** Runtime data-access mode for this deployment. */
-    storageMode?: SystemStorageMode;
-    /** Base URL for optional API-assisted mode, e.g. https://project.example.com/api. */
+    /** Base URL for the backend API, e.g. https://intranet.example.com. */
     apiBaseUrl?: string;
-    /** Optional endpoint path for JSON data save/load. Defaults to /app-data. */
-    dataEndpointPath?: string;
-    /** Optional endpoint path for file/image uploads. Defaults to /api/v1/uploads. */
+    /** Endpoint path for file/image uploads. Defaults to /api/v1/uploads. */
     uploadEndpointPath?: string;
   };
 };
@@ -615,7 +610,7 @@ export type Announcement = {
   updatedAt: string;
 };
 
-// ── Root data model (altcloud-data.json) ─────────────────────────────────────
+// ── Root in-memory export model (admin JSON snapshot) ────────────────────────
 
 export type AppData = {
   meta: {

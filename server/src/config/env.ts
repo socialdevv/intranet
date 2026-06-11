@@ -12,6 +12,15 @@ const envSchema = z.object({
     .default("info"),
   DATABASE_URL: z.string().min(1, "DATABASE_URL is required."),
   CORS_ALLOWED_ORIGINS: z.string().optional(),
+  RATE_LIMIT_MAX: z.coerce.number().int().positive().default(200),
+  RATE_LIMIT_TIME_WINDOW: z.string().min(1).default("1 minute"),
+  UPLOAD_MAX_FILE_SIZE_BYTES: z.coerce.number().int().positive().default(314_572_800),
+  UPLOAD_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(5),
+  UPLOAD_RATE_LIMIT_TIME_WINDOW: z.string().min(1).default("1 minute"),
+  ENABLE_SWAGGER: z.preprocess((value) => value === true || value === "true", z.boolean()).default(false),
+  ENABLE_PREVIEW_AUTH: z.preprocess((value) => value === true || value === "true", z.boolean()).default(false),
+  PREVIEW_AUTH_DEFAULT_USER_EMAIL: z.string().optional(),
+  STATIC_WEB_ROOT: z.string().optional(),
   MEDIA_STORAGE_ROOT: z.string().optional(),
 });
 

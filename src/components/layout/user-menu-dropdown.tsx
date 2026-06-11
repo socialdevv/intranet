@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/auth-context";
+import { useData } from "@/contexts/data-context";
+import { useToast } from "@/contexts/toast-context";
 import { useProjectRouting } from "@/hooks/useProjectRouting";
 import { canAccessAdminPanel } from "@/lib/auth/authorization";
 import { ROUTES } from "@/lib/routes";
@@ -26,8 +28,11 @@ const roleLabel: Record<AppRole, string> = {
 export default function UserMenuDropdown({ currentUser, displayOverride }: UserMenuDropdownProps) {
   const navigate = useNavigate();
   const { logout } = useAuth();
+  const { reloadData } = useData();
+  const { push: toast } = useToast();
   const { resolveHref } = useProjectRouting();
   const [open, setOpen] = useState(false);
+  const [isRefreshingAccess, setIsRefreshingAccess] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -40,18 +45,40 @@ export default function UserMenuDropdown({ currentUser, displayOverride }: UserM
     return () => window.removeEventListener("mousedown", onMouseDown);
   }, []);
 
+  const usesBootstrapIdentity =
+    currentUser.identitySource === "platform-bootstrap" ||
+    currentUser.identitySource === "local-fallback";
+
+  async function onRefreshAccess() {
+    if (isRefreshingAccess) {
+      return;
+    }
+
+    setIsRefreshingAccess(true);
+    setOpen(false);
+
+    try {
+      const result = await reloadData();
+      if (result.ok) {
+        toast("success", "Odświeżono uprawnienia i dane sesji.", 3600);
+        return;
+      }
+
+      toast("error", result.error ?? "Nie udało się odświeżyć dostępu.", 5200);
+    } finally {
+      setIsRefreshingAccess(false);
+    }
+  }
+
   function onLogout() {
     logout();
     setOpen(false);
-    navigate(ROUTES.home);
+    navigate(resolveHref(ROUTES.home));
   }
 
   const canOpenAdmin = canAccessAdminPanel(currentUser);
 
-  const identityActionLabel =
-    currentUser.identitySource === "platform-bootstrap" || currentUser.identitySource === "local-fallback"
-      ? "Odśwież dostęp"
-      : "Wyloguj";
+  const identityActionLabel = usesBootstrapIdentity ? "Odśwież dostęp" : "Wyloguj";
 
   const displayName = displayOverride?.displayName ?? currentUser.displayName;
   const initials = displayOverride?.initials ?? currentUser.initials;
@@ -109,10 +136,18 @@ export default function UserMenuDropdown({ currentUser, displayOverride }: UserM
 
         <button
           type="button"
-          onClick={onLogout}
-          className="ui-menu-item ui-menu-item-danger mt-1 text-left"
+          onClick={() => {
+            if (usesBootstrapIdentity) {
+              void onRefreshAccess();
+              return;
+            }
+
+            onLogout();
+          }}
+          disabled={usesBootstrapIdentity && isRefreshingAccess}
+          className="ui-menu-item ui-menu-item-danger mt-1 text-left disabled:opacity-60"
         >
-          {identityActionLabel}
+          {usesBootstrapIdentity && isRefreshingAccess ? "Odświeżanie…" : identityActionLabel}
         </button>
       </div>
     </div>

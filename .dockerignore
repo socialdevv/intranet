@@ -1,0 +1,13 @@
+node_modules
+dist
+server/dist
+runtime-media
+.git
+.github
+.cursor
+*.md
+.env
+.env.*
+!.env.example
+public/altcloud-data.json
+scripts/local-private

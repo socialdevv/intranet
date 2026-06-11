@@ -1,6 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { Announcement } from "@/lib/types/domain";
-import { generateId } from "@/lib/utils";
 import {
   adaptProjectAnnouncement,
   adaptProjectAnnouncements,
@@ -11,10 +10,12 @@ import {
   type CreateProjectAnnouncementInput,
   type UpdateProjectAnnouncementInput,
 } from "@/lib/api/project-announcements";
-import type { ModuleDataSource, ProjectModuleDeps } from "./shared-module-types";
+import type { ProjectModuleDeps } from "./shared-module-types";
+
+const LEGACY_MUTATION_ERROR = "Legacy mutations are disabled in API mode";
 
 export type AnnouncementsModuleState = {
-  source: ModuleDataSource;
+  source: "api";
   isLoading: boolean;
   isMutating: boolean;
   error: string | null;
@@ -47,14 +48,6 @@ export function AnnouncementsProvider({
   const [announcementsError, setAnnouncementsError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!deps.apiMode) {
-      setApiAnnouncements(null);
-      setIsAnnouncementsLoading(false);
-      setIsAnnouncementsMutating(false);
-      setAnnouncementsError(null);
-      return;
-    }
-
     const controller = new AbortController();
 
     setIsAnnouncementsLoading(true);
@@ -88,71 +81,27 @@ export function AnnouncementsProvider({
     return () => {
       controller.abort();
     };
-  }, [deps.activeProjectSlug, deps.apiMode, deps.apiRuntimeRefreshKey]);
+  }, [deps.activeProjectSlug, deps.apiRuntimeRefreshKey]);
 
-  const resolvedAnnouncements = useMemo<Announcement[]>(
-    () =>
-      deps.apiMode
-        ? apiAnnouncements ?? ((deps.legacyData.announcements ?? []) as Announcement[])
-        : ((deps.legacyData.announcements ?? []) as Announcement[]),
-    [apiAnnouncements, deps.apiMode, deps.legacyData.announcements]
-  );
+  const resolvedAnnouncements = useMemo<Announcement[]>(() => apiAnnouncements ?? [], [apiAnnouncements]);
 
   const addAnnouncement = useCallback(
-    (a: Omit<Announcement, "id"> & { id?: string }): Announcement => {
-      const full: Announcement = { ...a, id: a.id ?? generateId("ann") };
-      deps.setLegacyData({
-        ...deps.legacyData,
-        announcements: [...(deps.legacyData.announcements ?? []), full],
-      });
-      return full;
+    (_a: Omit<Announcement, "id"> & { id?: string }): Announcement => {
+      throw new Error(LEGACY_MUTATION_ERROR);
     },
-    [deps]
+    []
   );
 
-  const updateAnnouncement = useCallback(
-    (updated: Announcement): void => {
-      deps.setLegacyData({
-        ...deps.legacyData,
-        announcements: (deps.legacyData.announcements ?? []).map((announcement: Announcement) =>
-          announcement.id === updated.id ? updated : announcement
-        ),
-      });
-    },
-    [deps]
-  );
+  const updateAnnouncement = useCallback((_updated: Announcement): void => {
+    throw new Error(LEGACY_MUTATION_ERROR);
+  }, []);
 
-  const deleteAnnouncement = useCallback(
-    (id: string): void => {
-      deps.setLegacyData({
-        ...deps.legacyData,
-        announcements: (deps.legacyData.announcements ?? []).filter(
-          (announcement: Announcement) => announcement.id !== id
-        ),
-      });
-    },
-    [deps]
-  );
+  const deleteAnnouncement = useCallback((_id: string): void => {
+    throw new Error(LEGACY_MUTATION_ERROR);
+  }, []);
 
   const createManagedAnnouncement = useCallback(
     async (input: CreateProjectAnnouncementInput): Promise<void> => {
-      if (!deps.apiMode) {
-        const nowIso = new Date().toISOString();
-
-        addAnnouncement({
-          title: input.title,
-          body: input.body,
-          description: input.description,
-          color: input.color,
-          active: input.active,
-          visibleFrom: input.visibleFrom ?? undefined,
-          visibleUntil: input.visibleUntil ?? undefined,
-          createdAt: nowIso,
-          updatedAt: nowIso,
-        });
-        return;
-      }
-
       if (apiAnnouncements === null) {
         throw new Error("Backend announcements are not ready yet.");
       }
@@ -171,36 +120,11 @@ export function AnnouncementsProvider({
         setIsAnnouncementsMutating(false);
       }
     },
-    [addAnnouncement, apiAnnouncements, deps.activeProjectSlug, deps.apiMode]
+    [apiAnnouncements, deps.activeProjectSlug]
   );
 
   const editManagedAnnouncement = useCallback(
     async (id: string, input: UpdateProjectAnnouncementInput): Promise<void> => {
-      if (!deps.apiMode) {
-        const existing = resolvedAnnouncements.find((announcement) => announcement.id === id);
-
-        if (!existing) {
-          throw new Error("Ogłoszenie nie zostało znalezione.");
-        }
-
-        updateAnnouncement({
-          ...existing,
-          title: input.title ?? existing.title,
-          body: input.body ?? existing.body,
-          description: input.description ?? existing.description,
-          color: input.color ?? existing.color,
-          active: input.active ?? existing.active,
-          visibleFrom: Object.prototype.hasOwnProperty.call(input, "visibleFrom")
-            ? (input.visibleFrom ?? undefined)
-            : existing.visibleFrom,
-          visibleUntil: Object.prototype.hasOwnProperty.call(input, "visibleUntil")
-            ? (input.visibleUntil ?? undefined)
-            : existing.visibleUntil,
-          updatedAt: new Date().toISOString(),
-        });
-        return;
-      }
-
       if (apiAnnouncements === null) {
         throw new Error("Backend announcements are not ready yet.");
       }
@@ -223,16 +147,11 @@ export function AnnouncementsProvider({
         setIsAnnouncementsMutating(false);
       }
     },
-    [apiAnnouncements, deps.activeProjectSlug, deps.apiMode, resolvedAnnouncements, updateAnnouncement]
+    [apiAnnouncements, deps.activeProjectSlug]
   );
 
   const removeManagedAnnouncement = useCallback(
     async (id: string): Promise<void> => {
-      if (!deps.apiMode) {
-        deleteAnnouncement(id);
-        return;
-      }
-
       if (apiAnnouncements === null) {
         throw new Error("Backend announcements are not ready yet.");
       }
@@ -251,16 +170,16 @@ export function AnnouncementsProvider({
         setIsAnnouncementsMutating(false);
       }
     },
-    [apiAnnouncements, deleteAnnouncement, deps.activeProjectSlug, deps.apiMode]
+    [apiAnnouncements, deps.activeProjectSlug]
   );
 
   const announcementsModule = useMemo<AnnouncementsModuleState>(
     () => ({
-      source: deps.apiMode ? "api" : "legacy",
+      source: "api",
       isLoading: isAnnouncementsLoading,
       isMutating: isAnnouncementsMutating,
       error: announcementsError,
-      canWrite: !deps.apiMode || apiAnnouncements !== null,
+      canWrite: apiAnnouncements !== null,
       createAnnouncement: createManagedAnnouncement,
       editAnnouncement: editManagedAnnouncement,
       removeAnnouncement: removeManagedAnnouncement,
@@ -269,7 +188,6 @@ export function AnnouncementsProvider({
       announcementsError,
       apiAnnouncements,
       createManagedAnnouncement,
-      deps.apiMode,
       editManagedAnnouncement,
       isAnnouncementsLoading,
       isAnnouncementsMutating,
@@ -285,13 +203,7 @@ export function AnnouncementsProvider({
       deleteAnnouncement,
       announcementsModule,
     }),
-    [
-      addAnnouncement,
-      announcementsModule,
-      deleteAnnouncement,
-      resolvedAnnouncements,
-      updateAnnouncement,
-    ]
+    [addAnnouncement, announcementsModule, deleteAnnouncement, resolvedAnnouncements, updateAnnouncement]
   );
 
   return (

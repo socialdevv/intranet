@@ -1,143 +1,280 @@
-# AltCloud Intranet
+# AltCloud Intranet — Operations Runbook
 
-A multi-project **intranet and knowledge base platform** built on React 19 + Vite (frontend) and Fastify + Prisma + PostgreSQL (backend). It serves project-scoped operational modules — contacts, decision matrix, pricing tables, communications, document templates, phrase libraries, links, quick links, announcements, and a full knowledge base — alongside a global platform shell with project directory, global announcements, and audit history.
+Enterprise intranet and knowledge-base platform for multi-project operational content: contacts, decision matrix, pricing, communications, templates, phrases, links, announcements, forms, and a full knowledge base — plus a global platform shell (project directory, global announcements, audit history).
 
-The repository contains both the SPA (`src/`) and the **application server** (`server/`). The server is the production implementation of the API contract defined in **[`API.md`](./API.md)**; any replacement or supplementary backend service must conform to those contracts.
-
----
-
-## Runtime Architecture
-
-### Two execution modes
-
-The entire data plane is controlled by a single `.env` variable:
-
-| Variable | Value | Effect |
-|---|---|---|
-| `VITE_ALTCLOUD_PLATFORM_DATA_SOURCE` | `legacy-json` | **Default.** Data is read from a bundled `AppData` JSON document stored in `localStorage` (`altcloud_data`). No backend required. Ideal for demos and UI iteration. |
-| `VITE_ALTCLOUD_PLATFORM_DATA_SOURCE` | `api` | **API-first mode.** Each module provider fetches from its own REST endpoint under `/api/v1`. The Fastify server must be running and `DATABASE_URL` must point to a live PostgreSQL instance. |
-
-Switch by editing `.env` before starting the Vite dev server. `VITE_*` variables are embedded in the client bundle at build time — they are **not secrets**.
-
-### Strangler Pattern fallback — why JSON structures exist in frontend code
-
-The migration from the legacy JSON runtime to the REST API follows the [Strangler Fig Pattern](https://martinfowler.com/bliki/StranglerFigApplication.html). Every module provider resolves its read model as:
-
-```
-resolvedData = apiData ?? legacySlice
-```
-
-When `api` mode is active and a module fetch is still in flight (or has not yet returned), the provider transparently falls back to the slice of data that was loaded from the bundled JSON / `localStorage`. This means:
-
-- **You will see `AppData` JSON structures in the frontend codebase.** They are the fallback, not a parallel source of truth.
-- Once a module's API fetch resolves successfully, `apiData` takes precedence and the legacy slice becomes irrelevant for that session.
-- The bundled JSON will be removed once all module providers are confirmed stable in `api` mode.
-
-**Do not add new product behavior to the bundled JSON or `localStorage` paths.** All new business logic belongs in the backend service layer.
+This repository ships a **production-grade, PostgreSQL-only** stack: a React SPA (`src/`), a stateless Fastify API (`server/`), and a Prisma-managed schema (`prisma/`). The HTTP contract is defined in [`API.md`](./API.md).
 
 ---
 
-## Local Setup & Installation
+## Architecture Overview
+
+The platform follows a **three-tier, API-first** design. All business data lives in PostgreSQL. The browser holds module data in **React state (RAM)** after initial REST hydration; there is no `localStorage` business-data path and no bundled JSON runtime.
+
+| Tier | Technology | Responsibility |
+|------|------------|----------------|
+| **Presentation** | React 19 + Vite + TypeScript | SPA, module providers, in-memory search |
+| **Application** | Fastify 5 + TypeScript | REST API `/api/v1/*`, auth resolution, uploads, metrics |
+| **Data** | PostgreSQL 16 + Prisma | Operational models (~25 entities), append-only audit trail |
+
+In **production containers**, a single Node process serves both the compiled SPA (`dist/`) and the API. Uploaded media is stored on the filesystem under `runtime-media/` (configurable via `MEDIA_STORAGE_ROOT`).
+
+### Data flow
+
+```
+┌──────────────┐     HTTPS (same origin)      ┌─────────────────────────────────────┐
+│   Browser    │ ───────────────────────────► │  Fastify (stateless app tier)       │
+│  React SPA   │   GET/POST /api/v1/*         │  • Prisma → PostgreSQL              │
+│              │   multipart uploads          │  • @fastify/static → dist/ (SPA)    │
+│  Module data │ ◄─────────────────────────── │  • @fastify/static → runtime-media/ │
+│  in RAM      │   JSON envelopes             └──────────────┬──────────────────────┘
+│              │                                              │
+│  Ctrl+K      │   searchAll() scans in-memory slices         │  SQL (CRUD + audit)
+│  search      │   — no DB full-text queries                  ▼
+└──────────────┘                                   ┌─────────────────────┐
+                                                   │  PostgreSQL 16      │
+                                                   │  (managed / Docker) │
+                                                   └─────────────────────┘
+```
+
+**Search model:** Global and project search (`src/lib/search/search.ts`) runs entirely **in-memory** over data already loaded into React module providers. This keeps database I/O minimal and avoids server-side search indexes for interactive lookup. Module endpoints return list payloads; the client ranks and filters them locally.
+
+**Audit model:** `AuditLog` rows are an **append-only side effect** of mutations (not the primary datastore). Upload tier capacity is also derived from audit `create` events for `project_media_upload` entities.
+
+---
+
+## Production-Ready Features
+
+### Security
+
+| Control | Configuration | Behavior |
+|---------|---------------|----------|
+| **CORS** | `CORS_ALLOWED_ORIGINS` | Comma-separated allowlist. In production, origins not on the list are rejected. Empty value in production logs a warning and blocks cross-origin browser traffic. |
+| **Global rate limit** | `RATE_LIMIT_MAX=200`, `RATE_LIMIT_TIME_WINDOW=1 minute` | Applied via `@fastify/rate-limit` to API routes. Operational paths (`/metrics`, `/docs`) are exempt. |
+| **Production auth** | Default: header auth **disabled** in `NODE_ENV=production` | Identity is expected from an upstream IdP/gateway in live deployments. See [Pre-IdP Staging Auth](#pre-idp-staging-auth). |
+| **Structured logging** | `LOG_LEVEL` | Application logs via Pino to **stdout** only. Business audit events go to PostgreSQL, not log files. |
+
+### Tiered upload capacity policy
+
+Uploads use `@fastify/multipart` with enforcement at the stream, route, and project-capacity layers.
+
+| Rule | Limit | Enforcement |
+|------|-------|-------------|
+| **Global file size** | **300 MB** hard cap | `UPLOAD_MAX_FILE_SIZE_BYTES=314572800` on multipart limits and stream guards |
+| **Small tier** | ≤ 25 MB, **max 10 files per project** | Counts existing `project_media_upload` audit `create` events |
+| **Large tier** | \> 25 MB and ≤ 300 MB, **max 3 files per project** | Same audit-based counting |
+| **Upload rate limit** | **5 requests / minute / IP** | Route-level limit on `POST /api/v1/uploads` (`UPLOAD_RATE_LIMIT_MAX`, `UPLOAD_RATE_LIMIT_TIME_WINDOW`) |
+
+Violations return **HTTP 400** with descriptive error codes (`UPLOAD_TOO_LARGE`, `UPLOAD_CAPACITY_EXCEEDED`). Files are written under `MEDIA_STORAGE_ROOT` (default `runtime-media/`) and served at `/photos/*`, `/videos/*`, `/files/*`.
+
+### Telemetry and API documentation
+
+| Endpoint | Purpose | Access |
+|----------|---------|--------|
+| **`GET /metrics`** | Prometheus text exposition (`prom-client`: process + HTTP metrics) | Unauthenticated; scrape from your observability stack |
+| **`GET /docs`** | Swagger UI (`@fastify/swagger-ui`) | **Disabled in production** unless `ENABLE_SWAGGER=true` |
+| **`GET /openapi.json`** | OpenAPI 3 specification | Always registered (hidden from Swagger tag list) |
+
+Swagger UI is enabled when `NODE_ENV !== 'production'` **or** `ENABLE_SWAGGER=true`.
+
+---
+
+## Database Lifecycle and Retention
+
+### Schema authority
+
+`prisma/schema.prisma` is the **sole source of truth** for the database. Apply changes with Prisma migrations only.
+
+### AuditLog and JSONB
+
+The `AuditLog` model stores flexible event context in native PostgreSQL **JSONB** (`metadata_jsonb`):
+
+- `occurredAt` — business timestamp used for retention (not `createdAt`)
+- `actorUserId`, `projectId`, `moduleKey`, `entityType`, `entityId`, `actionType`
+- `metadataJson` — structured payload (e.g. upload `sizeBytes`, `storedPath`)
+
+Indexes support time-range and project-scoped audit queries.
+
+### Automated 90-day retention
+
+A background scheduler (`server/src/jobs/audit-retention-scheduler.ts`) runs:
+
+1. **On server startup** (after `listen`)
+2. **Every 7 days**
+
+It deletes rows where `occurredAt` is older than **90 days** (`AUDIT_LOG_RETENTION_DAYS` in `server/src/lib/audit-retention.ts`). Prune results are logged with `deletedCount` and cutoff timestamp.
+
+---
+
+## Getting Started
 
 ### Prerequisites
 
-- **Node.js** `^20` or `^22` — use [nvm](https://github.com/nvm-sh/nvm) with the included `.nvmrc`
-- **PostgreSQL** — a local instance on port `5432` is assumed by `.env.example`
+- **Docker** and **Docker Compose** (recommended for production-like runs)
+- **Node.js** `^20` or `^22` (local development; see `.nvmrc`)
 
-### 1. Install dependencies
+### Docker Compose (recommended)
+
+The root `Dockerfile` builds a multi-stage image: Vite frontend → TypeScript server → runtime with Prisma client generation. `docker-compose.yml` orchestrates PostgreSQL and the app.
+
+```bash
+# Build and start PostgreSQL + application
+docker compose up --build
+```
+
+| Service | Image / build | Port | Notes |
+|---------|---------------|------|-------|
+| `db` | `postgres:16-alpine` | internal | Persistent volume `postgres_data` |
+| `app` | Root `Dockerfile` | **3001** | SPA + API; volume `app_media` → `/app/runtime-media` |
+
+**Startup sequence** (`docker/entrypoint.sh`):
+
+1. `prisma migrate deploy` — applies pending migrations automatically
+2. Database seed when `RUN_DB_SEED=auto` and no users exist (or always when `RUN_DB_SEED=true`)
+3. `node server/dist/index.js`
+
+Open **http://localhost:3001** after containers are healthy.
+
+To reset all data (including Postgres and uploaded media):
+
+```bash
+docker compose down -v
+docker compose up --build
+```
+
+### Local development (without Docker)
 
 ```bash
 npm ci
-```
+cp .env.example .env          # set DATABASE_URL, CORS, optional dev user email
+npm run prisma:generate
+npm run prisma:migrate:deploy
+npm run prisma:seed           # optional baseline data
 
-### 2. Configure environment
+# Terminal 1 — API on :3001
+npm run dev:server
 
-Copy the example and fill in values:
-
-```bash
-cp .env.example .env
-```
-
-Key variables to review:
-
-| Variable | Purpose |
-|---|---|
-| `DATABASE_URL` | PostgreSQL connection string (required in `api` mode) |
-| `VITE_ALTCLOUD_PLATFORM_DATA_SOURCE` | `legacy-json` (no backend needed) or `api` |
-| `VITE_ALTCLOUD_API_BASE_URL` | Backend origin; defaults to `http://127.0.0.1:3001` |
-| `VITE_ALTCLOUD_API_DEV_USER_EMAIL` | Gateway identity header value — corporate email of the user to resolve; see **Authentication** below |
-
-### 3. Prepare Prisma
-
-```bash
-npm run prisma:generate          # generates the Prisma client
-npm run prisma:migrate:deploy    # applies all pending migrations
-npm run prisma:seed              # optional — loads bootstrap data for local use
-```
-
-### 4. Start the backend (api mode only)
-
-```bash
-nvm use 22 && npm run dev:server
-```
-
-The server starts on `http://127.0.0.1:3001`. Vite proxies all `/api`, `/photos`, `/videos`, and `/files` requests to this origin automatically.
-
-### 5. Start the frontend
-
-```bash
+# Terminal 2 — Vite dev server on :5173 (proxies /api to backend)
 npm run dev
 ```
 
-The SPA is served at `http://localhost:5173` (or next available port).
+Set `VITE_ALTCLOUD_API_DEV_USER_EMAIL` to a seeded user (e.g. `super.admin@intranet.local`) so the SPA sends `x-dev-user-email` on API calls.
 
-### Validation commands
-
-Run these before opening a pull request:
+### Validation
 
 ```bash
-npm run lint               # ESLint flat config (eslint.config.js)
-npm run typecheck:server   # TypeScript check for server/
-npm run build              # full production build
-npm run prisma:validate    # schema integrity check
-npm run test:server        # server integration tests
+npm run lint
+npm run typecheck:server
+npm run build
+npm run build:server
+npm run prisma:validate
+npm run test:server
 ```
-
-CI runs all of the above automatically on every pull request via `.github/workflows/ci.yml`.
 
 ---
 
-## Authentication
+## Pre-IdP Staging Auth
 
-### Gateway-Offloaded Authentication Protocol
+Before the corporate Identity Provider is integrated, use **Preview Authentication** to test roles inside a production-mode container.
 
-The platform uses a **gateway-offloaded identity model**. An upstream API Gateway or Reverse Proxy — such as nginx, AWS API Gateway, Traefik, or a corporate SSO edge service — is solely responsible for authenticating inbound requests, managing session tokens, and validating SSO / OIDC / SAML 2.0 assertions. Once the gateway has verified a caller's identity, it injects the resolved corporate email into the application layer via a trusted HTTP header:
+| Variable | Purpose |
+|----------|---------|
+| `ENABLE_PREVIEW_AUTH=true` | Allows `x-dev-user-email` header resolution even when `NODE_ENV=production` |
+| `PREVIEW_AUTH_DEFAULT_USER_EMAIL` | Fallback user when the browser sends no header |
+| `VITE_ALTCLOUD_API_DEV_USER_EMAIL` | Baked into the SPA at **Docker build time** (build arg); also read at runtime by the server fallback chain |
+
+When preview auth is active, the server logs:
 
 ```
-x-dev-user-email: alice.smith@example.com
+[SECURITY WARNING] Preview Authentication is ENABLED. Do not use this configuration in a live production environment!
 ```
 
-Set `VITE_ALTCLOUD_API_DEV_USER_EMAIL` in `.env` to the email of a provisioned user. The frontend attaches this header to every API request; the application server trusts it as the authoritative identity signal, looks up the matching `User` row, and derives all role and capability decisions from that record.
+**Identity resolution order (preview mode, no header):**
 
-This architecture deliberately decouples identity management from the application service, allowing the platform to integrate with any enterprise identity provider at the gateway layer without changes to application code.
+1. `VITE_ALTCLOUD_API_DEV_USER_EMAIL` (container env)
+2. `PREVIEW_AUTH_DEFAULT_USER_EMAIL`
+3. First active `super_admin` in the database
+4. `super.admin@intranet.local`
 
-> **Network security boundary:** The `x-dev-user-email` header must be stripped from all inbound public requests by the upstream gateway before forwarding to the application service. Application service ports must be accessible only from the internal network or via dedicated gateway ingress. See [`API.md`](./API.md) → **Authentication & Headers** for the full protocol specification.
+The SPA shows a **preview auth bar** when bootstrap `authMode` is `preview_header`, with a dropdown to switch test users (persisted in `sessionStorage`). API: `GET /api/v1/platform/preview-auth/users` (only when preview auth is enabled).
+
+**Example `docker-compose.yml` fragment:**
+
+```yaml
+environment:
+  ENABLE_PREVIEW_AUTH: "true"
+  PREVIEW_AUTH_DEFAULT_USER_EMAIL: super.admin@intranet.local
+  RUN_DB_SEED: auto
+build:
+  args:
+    VITE_ALTCLOUD_API_DEV_USER_EMAIL: super.admin@intranet.local
+```
+
+> **Live production:** Set `ENABLE_PREVIEW_AUTH=false` (default). Strip `x-dev-user-email` at the gateway and inject identity from your IdP. Do not expose preview auth on public networks.
 
 ---
 
-## Project Structure (key paths)
+## SRE Operational Notes
+
+### High availability (HA) deployments
+
+The application tier is **stateless** — scale horizontally by running multiple `app` replicas behind a load balancer. Two components require shared infrastructure:
+
+| Component | Single-instance default | HA requirement |
+|-----------|----------------------|----------------|
+| **PostgreSQL** | Docker volume `postgres_data` | Use a **managed, shared PostgreSQL** service (RDS, Cloud SQL, Azure Database, etc.). Do not rely on per-pod ephemeral databases. |
+| **Uploaded media** | `runtime-media/` on local disk | Mount `MEDIA_STORAGE_ROOT` to a **shared network filesystem** (AWS EFS, NFS, GlusterFS, Azure Files) so every replica serves the same files. In Compose, volume `app_media` must be backed by shared storage in multi-instance clusters. |
+
+### Environment reference
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `NODE_ENV` | `development` | `production` in containers |
+| `SERVER_HOST` / `SERVER_PORT` | `127.0.0.1` / `3001` | Bind address |
+| `DATABASE_URL` | — | **Required.** PostgreSQL connection string |
+| `CORS_ALLOWED_ORIGINS` | — | Comma-separated browser origins |
+| `RATE_LIMIT_MAX` | `200` | Global API rate limit |
+| `RATE_LIMIT_TIME_WINDOW` | `1 minute` | Global rate-limit window |
+| `UPLOAD_MAX_FILE_SIZE_BYTES` | `314572800` | 300 MB multipart cap |
+| `UPLOAD_RATE_LIMIT_MAX` | `5` | Upload endpoint rate limit |
+| `UPLOAD_RATE_LIMIT_TIME_WINDOW` | `1 minute` | Upload rate-limit window |
+| `ENABLE_SWAGGER` | `false` | Expose `/docs` in production when `true` |
+| `ENABLE_PREVIEW_AUTH` | `false` | Pre-IdP header auth in production |
+| `PREVIEW_AUTH_DEFAULT_USER_EMAIL` | — | Preview fallback identity |
+| `STATIC_WEB_ROOT` | — | SPA root (`/app/dist` in Docker) |
+| `MEDIA_STORAGE_ROOT` | `./runtime-media` | Upload filesystem root |
+| `RUN_DB_SEED` | `auto` | `auto` \| `true` \| `false` — seed control in Docker |
+| `LOG_LEVEL` | `info` | Pino log level |
+
+See [`.env.example`](./.env.example) for the full template.
+
+### Health and operations endpoints
+
+| Path | Description |
+|------|-------------|
+| `GET /api/v1/health/live` | Liveness |
+| `GET /api/v1/meta` | Service metadata |
+| `GET /metrics` | Prometheus scrape target |
+
+### Repository layout
 
 | Path | Contents |
-|---|---|
-| `src/contexts/modules/` | Per-module React providers (contacts, phrases, matrix, …) |
-| `src/lib/api/` | HTTP client functions for each API resource |
-| `src/lib/types/domain.ts` | Canonical domain types shared across frontend |
-| `server/src/routes/` | Fastify route handlers — production API implementation |
-| `prisma/schema.prisma` | **Sole source of truth for the database schema** |
-| `server/test/api-hardening.test.ts` | Server integration test suite |
+|------|----------|
+| `src/` | React SPA, module providers, in-memory search |
+| `server/src/` | Fastify app, routes, plugins, jobs |
+| `prisma/` | Schema, migrations, seed |
+| `docker/` | Entrypoint, seed gate script |
+| `Dockerfile` | Multi-stage production image |
+| `docker-compose.yml` | Local/staging orchestration |
+| `API.md` | HTTP API reference |
 
 ---
 
 ## API Contract
 
-> **See [`API.md`](./API.md) for the complete HTTP API reference** — all request/response shapes, envelope format, error codes, role definitions, and the Client-Side Search Architecture specification.
+All REST shapes, envelopes, error codes, roles, and upload semantics are specified in **[`API.md`](./API.md)**. External backends or gateway integrations must conform to that contract.
+
+---
+
+## License
+
+Private / internal use — see repository ownership and organizational policy.

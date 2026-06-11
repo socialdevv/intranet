@@ -95,8 +95,9 @@ export default function Sidebar({ mobileOpen, onCloseMobile, shellCutover }: Sid
       <nav className="space-y-2">
         {orderedItems.map((item) => {
           const isActive =
-            pathname === item.href ||
-            (item.key !== "home" && pathname.startsWith(item.href));
+            item.key === "home"
+              ? pathname === item.href
+              : pathname === item.href || pathname.startsWith(`${item.href}/`);
 
           return (
             <Link key={item.href} to={item.href} onClick={onCloseMobile}>

@@ -103,7 +103,7 @@ function RequireProjectAccess({ children }: { children: React.ReactNode }) {
     return <Navigate to={ROUTES.projects} replace />;
   }
 
-  if (platformBootstrapState.status === "disabled" || projectBootstrapState.status === "disabled") {
+  if (projectBootstrapState.status === "disabled") {
     return <>{children}</>;
   }
 

@@ -18,7 +18,9 @@ import {
   updatePlatformLink,
 } from "../lib/platform-links.js";
 import { createPlatformProject } from "../lib/platform-projects.js";
+import { isPreviewAuthEnabled } from "../lib/preview-auth.js";
 import { buildPlatformAuditHistory } from "../lib/project-audit.js";
+import { UserStatus } from "@prisma/client";
 
 function resolveSelectedUserEmail(request: FastifyRequest) {
   const headerValue = request.headers[DEV_USER_HEADER_NAME];
@@ -50,6 +52,32 @@ async function resolveRequestUser(
 }
 
 const platformRoutes: FastifyPluginAsync = async (fastify) => {
+  fastify.get("/platform/preview-auth/users", async (request, reply) => {
+    if (!isPreviewAuthEnabled()) {
+      reply.code(404);
+
+      return errorEnvelope(request.id, {
+        code: "PREVIEW_AUTH_DISABLED",
+        message: "Preview authentication user directory is not available.",
+      });
+    }
+
+    const users = await fastify.prisma.user.findMany({
+      where: {
+        status: UserStatus.active,
+      },
+      orderBy: [{ email: "asc" }],
+      select: {
+        email: true,
+        displayName: true,
+        initials: true,
+        globalRole: true,
+      },
+    });
+
+    return successEnvelope(request.id, { users });
+  });
+
   fastify.get("/platform/bootstrap", async (request, reply) => {
     const currentUser = await resolveRequestUser(fastify.prisma, request, reply);
 

@@ -1,6 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { Cennik, CennikiPayload } from "@/lib/types/domain";
-import { generateId } from "@/lib/utils";
 import {
   adaptProjectPricing,
   adaptProjectPricingItems,
@@ -11,10 +10,12 @@ import {
   type CreateProjectPricingInput,
   type UpdateProjectPricingInput,
 } from "@/lib/api/project-pricing";
-import type { ModuleDataSource, ProjectModuleDeps } from "./shared-module-types";
+import type { ProjectModuleDeps } from "./shared-module-types";
+
+const LEGACY_MUTATION_ERROR = "Legacy mutations are disabled in API mode";
 
 export type CennikiModuleState = {
-  source: ModuleDataSource;
+  source: "api";
   isLoading: boolean;
   isMutating: boolean;
   error: string | null;
@@ -52,10 +53,6 @@ function sortCenniki(items: Cennik[]): Cennik[] {
   });
 }
 
-function legacyCennikDocuments(deps: ProjectModuleDeps): Cennik[] {
-  return deps.legacyData.cenniki?.documents ?? [];
-}
-
 export function CennikiProvider({
   deps,
   children,
@@ -69,14 +66,6 @@ export function CennikiProvider({
   const [cennikiError, setCennikiError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!deps.apiMode) {
-      setApiCenniki(null);
-      setIsCennikiLoading(false);
-      setIsCennikiMutating(false);
-      setCennikiError(null);
-      return;
-    }
-
     const controller = new AbortController();
 
     setIsCennikiLoading(true);
@@ -110,78 +99,29 @@ export function CennikiProvider({
     return () => {
       controller.abort();
     };
-  }, [deps.activeProjectSlug, deps.apiMode, deps.apiRuntimeRefreshKey]);
+  }, [deps.activeProjectSlug, deps.apiRuntimeRefreshKey]);
 
-  const resolvedDocuments = useMemo<Cennik[]>(
-    () =>
-      deps.apiMode
-        ? apiCenniki ?? legacyCennikDocuments(deps)
-        : legacyCennikDocuments(deps),
-    [apiCenniki, deps]
-  );
+  const resolvedDocuments = useMemo<Cennik[]>(() => apiCenniki ?? [], [apiCenniki]);
 
   const resolvedCenniki = useMemo<CennikiPayload>(
     () => ({ documents: resolvedDocuments }),
     [resolvedDocuments]
   );
 
-  const addCennik = useCallback(
-    (c: Omit<Cennik, "id"> & { id?: string }): Cennik => {
-      const documents = legacyCennikDocuments(deps);
-      const full: Cennik = { ...c, id: c.id ?? generateId("cennik") };
-      deps.setLegacyData({
-        ...deps.legacyData,
-        cenniki: { ...deps.legacyData.cenniki, documents: [...documents, full] },
-      });
-      return full;
-    },
-    [deps]
-  );
+  const addCennik = useCallback((_c: Omit<Cennik, "id"> & { id?: string }): Cennik => {
+    throw new Error(LEGACY_MUTATION_ERROR);
+  }, []);
 
-  const updateCennik = useCallback(
-    (updated: Cennik): void => {
-      const documents = legacyCennikDocuments(deps);
-      deps.setLegacyData({
-        ...deps.legacyData,
-        cenniki: {
-          ...deps.legacyData.cenniki,
-          documents: documents.map((document: Cennik) => (document.id === updated.id ? updated : document)),
-        },
-      });
-    },
-    [deps]
-  );
+  const updateCennik = useCallback((_updated: Cennik): void => {
+    throw new Error(LEGACY_MUTATION_ERROR);
+  }, []);
 
-  const deleteCennik = useCallback(
-    (id: string): void => {
-      const documents = legacyCennikDocuments(deps);
-      deps.setLegacyData({
-        ...deps.legacyData,
-        cenniki: {
-          ...deps.legacyData.cenniki,
-          documents: documents.filter((document: Cennik) => document.id !== id),
-        },
-      });
-    },
-    [deps]
-  );
+  const deleteCennik = useCallback((_id: string): void => {
+    throw new Error(LEGACY_MUTATION_ERROR);
+  }, []);
 
   const createManagedCennik = useCallback(
     async (input: CreateProjectPricingInput): Promise<void> => {
-      if (!deps.apiMode) {
-        addCennik({
-          title: input.title,
-          subtitle: input.subtitle ?? undefined,
-          provider: input.provider ?? undefined,
-          effectiveFrom: input.effectiveFrom,
-          updatedAt: new Date().toISOString(),
-          status: input.status,
-          footnotes: input.footnotes && input.footnotes.length > 0 ? input.footnotes : undefined,
-          sections: input.sections,
-        });
-        return;
-      }
-
       if (apiCenniki === null) {
         throw new Error("Backend pricing documents are not ready yet.");
       }
@@ -200,37 +140,11 @@ export function CennikiProvider({
         setIsCennikiMutating(false);
       }
     },
-    [addCennik, apiCenniki, deps.activeProjectSlug, deps.apiMode]
+    [apiCenniki, deps.activeProjectSlug]
   );
 
   const editManagedCennik = useCallback(
     async (id: string, input: UpdateProjectPricingInput): Promise<void> => {
-      if (!deps.apiMode) {
-        const existing = legacyCennikDocuments(deps).find((document) => document.id === id);
-
-        if (!existing) {
-          throw new Error("Cennik nie został znaleziony.");
-        }
-
-        updateCennik({
-          ...existing,
-          title: input.title ?? existing.title,
-          subtitle: input.subtitle === undefined ? existing.subtitle : (input.subtitle ?? undefined),
-          provider: input.provider === undefined ? existing.provider : (input.provider ?? undefined),
-          effectiveFrom: input.effectiveFrom ?? existing.effectiveFrom,
-          updatedAt: new Date().toISOString(),
-          status: input.status ?? existing.status,
-          footnotes:
-            input.footnotes === undefined
-              ? existing.footnotes
-              : input.footnotes.length > 0
-                ? input.footnotes
-                : undefined,
-          sections: input.sections ?? existing.sections,
-        });
-        return;
-      }
-
       if (apiCenniki === null) {
         throw new Error("Backend pricing documents are not ready yet.");
       }
@@ -255,16 +169,11 @@ export function CennikiProvider({
         setIsCennikiMutating(false);
       }
     },
-    [apiCenniki, deps.activeProjectSlug, deps.apiMode, updateCennik]
+    [apiCenniki, deps.activeProjectSlug]
   );
 
   const removeManagedCennik = useCallback(
     async (id: string): Promise<void> => {
-      if (!deps.apiMode) {
-        deleteCennik(id);
-        return;
-      }
-
       if (apiCenniki === null) {
         throw new Error("Backend pricing documents are not ready yet.");
       }
@@ -283,16 +192,16 @@ export function CennikiProvider({
         setIsCennikiMutating(false);
       }
     },
-    [apiCenniki, deleteCennik, deps.activeProjectSlug, deps.apiMode]
+    [apiCenniki, deps.activeProjectSlug]
   );
 
   const cennikiModule = useMemo<CennikiModuleState>(
     () => ({
-      source: deps.apiMode ? "api" : "legacy",
+      source: "api",
       isLoading: isCennikiLoading,
       isMutating: isCennikiMutating,
       error: cennikiError,
-      canWrite: !deps.apiMode || apiCenniki !== null,
+      canWrite: apiCenniki !== null,
       createCennik: createManagedCennik,
       editCennik: editManagedCennik,
       removeCennik: removeManagedCennik,
@@ -301,7 +210,6 @@ export function CennikiProvider({
       apiCenniki,
       cennikiError,
       createManagedCennik,
-      deps.apiMode,
       editManagedCennik,
       isCennikiLoading,
       isCennikiMutating,

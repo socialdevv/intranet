@@ -1,6 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { HomeQuickLink } from "@/lib/types/domain";
-import { generateId } from "@/lib/utils";
 import {
   adaptProjectQuickLinksToHomeQuickLinks,
   adaptProjectQuickLinkToHomeQuickLink,
@@ -12,10 +11,12 @@ import {
   type CreateProjectQuickLinkInput,
   type UpdateProjectQuickLinkInput,
 } from "@/lib/api/project-quick-links";
-import type { ModuleDataSource, ProjectModuleDeps } from "./shared-module-types";
+import type { ProjectModuleDeps } from "./shared-module-types";
+
+const LEGACY_MUTATION_ERROR = "Legacy mutations are disabled in API mode";
 
 export type QuickLinksModuleState = {
-  source: ModuleDataSource;
+  source: "api";
   isLoading: boolean;
   isMutating: boolean;
   error: string | null;
@@ -52,14 +53,6 @@ export function QuickLinksProvider({
   const [homeQuickLinksError, setHomeQuickLinksError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!deps.apiMode) {
-      setApiHomeQuickLinks(null);
-      setIsHomeQuickLinksLoading(false);
-      setIsHomeQuickLinksMutating(false);
-      setHomeQuickLinksError(null);
-      return;
-    }
-
     const controller = new AbortController();
 
     setIsHomeQuickLinksLoading(true);
@@ -93,43 +86,16 @@ export function QuickLinksProvider({
     return () => {
       controller.abort();
     };
-  }, [deps.activeProjectSlug, deps.apiMode, deps.apiRuntimeRefreshKey]);
+  }, [deps.activeProjectSlug, deps.apiRuntimeRefreshKey]);
 
-  const resolvedHomeQuickLinks = useMemo<HomeQuickLink[]>(
-    () =>
-      deps.apiMode
-        ? apiHomeQuickLinks ?? ((deps.legacyData.homeQuickLinks ?? []) as HomeQuickLink[])
-        : ((deps.legacyData.homeQuickLinks ?? []) as HomeQuickLink[]),
-    [apiHomeQuickLinks, deps.apiMode, deps.legacyData.homeQuickLinks]
-  );
+  const resolvedHomeQuickLinks = useMemo<HomeQuickLink[]>(() => apiHomeQuickLinks ?? [], [apiHomeQuickLinks]);
 
-  const setHomeQuickLinks = useCallback(
-    (items: HomeQuickLink[]): void => {
-      deps.setLegacyData({ ...deps.legacyData, homeQuickLinks: items });
-    },
-    [deps]
-  );
+  const setHomeQuickLinks = useCallback((_items: HomeQuickLink[]): void => {
+    throw new Error(LEGACY_MUTATION_ERROR);
+  }, []);
 
   const addQuickLink = useCallback(
     async (input: CreateProjectQuickLinkInput): Promise<void> => {
-      if (!deps.apiMode) {
-        const next = sortQuickLinks([
-          ...resolvedHomeQuickLinks,
-          {
-            id: generateId("hql"),
-            label: input.label,
-            url: input.url,
-            icon: input.icon,
-            sortOrder: resolvedHomeQuickLinks.length,
-            openInNewTab: input.isInternal ? false : input.openInNewTab,
-            isInternal: input.isInternal,
-          },
-        ]);
-
-        setHomeQuickLinks(next);
-        return;
-      }
-
       if (apiHomeQuickLinks === null) {
         throw new Error("Backend quick links are not ready yet.");
       }
@@ -150,29 +116,11 @@ export function QuickLinksProvider({
         setIsHomeQuickLinksMutating(false);
       }
     },
-    [apiHomeQuickLinks, deps.activeProjectSlug, deps.apiMode, resolvedHomeQuickLinks, setHomeQuickLinks]
+    [apiHomeQuickLinks, deps.activeProjectSlug]
   );
 
   const editQuickLink = useCallback(
     async (id: string, input: UpdateProjectQuickLinkInput): Promise<void> => {
-      if (!deps.apiMode) {
-        const next = resolvedHomeQuickLinks.map((link) =>
-          link.id === id
-            ? {
-                ...link,
-                label: input.label ?? link.label,
-                url: input.url ?? link.url,
-                icon: input.icon ?? link.icon,
-                openInNewTab: (input.isInternal ?? link.isInternal) ? false : (input.openInNewTab ?? link.openInNewTab),
-                isInternal: input.isInternal ?? link.isInternal,
-              }
-            : link
-        );
-
-        setHomeQuickLinks(next);
-        return;
-      }
-
       if (apiHomeQuickLinks === null) {
         throw new Error("Backend quick links are not ready yet.");
       }
@@ -197,20 +145,11 @@ export function QuickLinksProvider({
         setIsHomeQuickLinksMutating(false);
       }
     },
-    [apiHomeQuickLinks, deps.activeProjectSlug, deps.apiMode, resolvedHomeQuickLinks, setHomeQuickLinks]
+    [apiHomeQuickLinks, deps.activeProjectSlug]
   );
 
   const removeQuickLink = useCallback(
     async (id: string): Promise<void> => {
-      if (!deps.apiMode) {
-        const next = resolvedHomeQuickLinks
-          .filter((link) => link.id !== id)
-          .map((link, index) => ({ ...link, sortOrder: index }));
-
-        setHomeQuickLinks(next);
-        return;
-      }
-
       if (apiHomeQuickLinks === null) {
         throw new Error("Backend quick links are not ready yet.");
       }
@@ -229,16 +168,11 @@ export function QuickLinksProvider({
         setIsHomeQuickLinksMutating(false);
       }
     },
-    [apiHomeQuickLinks, deps.activeProjectSlug, deps.apiMode, resolvedHomeQuickLinks, setHomeQuickLinks]
+    [apiHomeQuickLinks, deps.activeProjectSlug]
   );
 
   const reorderManagedQuickLinks = useCallback(
     (orderedItems: HomeQuickLink[]): void => {
-      if (!deps.apiMode) {
-        setHomeQuickLinks(orderedItems.map((link, index) => ({ ...link, sortOrder: index })));
-        return;
-      }
-
       if (apiHomeQuickLinks === null) {
         setHomeQuickLinksError("Backend quick links are not ready yet.");
         return;
@@ -268,17 +202,17 @@ export function QuickLinksProvider({
         }
       })();
     },
-    [apiHomeQuickLinks, deps.activeProjectSlug, deps.apiMode, setHomeQuickLinks]
+    [apiHomeQuickLinks, deps.activeProjectSlug]
   );
 
   const quickLinksModule = useMemo<QuickLinksModuleState>(
     () => ({
-      source: deps.apiMode ? "api" : "legacy",
+      source: "api",
       isLoading: isHomeQuickLinksLoading,
       isMutating: isHomeQuickLinksMutating,
       error: homeQuickLinksError,
-      canWrite: !deps.apiMode || apiHomeQuickLinks !== null,
-      canReorder: !deps.apiMode || apiHomeQuickLinks !== null,
+      canWrite: apiHomeQuickLinks !== null,
+      canReorder: apiHomeQuickLinks !== null,
       addQuickLink,
       editQuickLink,
       removeQuickLink,
@@ -287,7 +221,6 @@ export function QuickLinksProvider({
     [
       addQuickLink,
       apiHomeQuickLinks,
-      deps.apiMode,
       editQuickLink,
       homeQuickLinksError,
       isHomeQuickLinksLoading,

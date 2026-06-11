@@ -82,6 +82,29 @@ export function globalAdminLinksPath() {
   return `${ROUTES.admin}/linki-globalne`;
 }
 
+/** Paths where automatic focus/visibility data refresh must not run (editors, admin). */
+export function isPathProtectedFromAutoDataRefresh(pathname: string): boolean {
+  const { pathname: plainPathname } = splitHrefSuffix(pathname);
+
+  if (plainPathname === ROUTES.login) {
+    return true;
+  }
+
+  if (plainPathname === ROUTES.admin || plainPathname.startsWith(`${ROUTES.admin}/`)) {
+    return true;
+  }
+
+  const projectRoute = resolveProjectPathMatch(plainPathname);
+  if (projectRoute) {
+    const localPath = projectRoute.localPath;
+    if (localPath === ROUTES.admin || localPath.startsWith(`${ROUTES.admin}/`)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 export function resolveProjectPathMatch(pathname: string): ProjectPathMatch | null {
   const { pathname: plainPathname } = splitHrefSuffix(pathname);
 

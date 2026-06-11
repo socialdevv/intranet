@@ -1,6 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { LinkItem } from "@/lib/types/domain";
-import { generateId } from "@/lib/utils";
 import {
   adaptProjectLinkToLinkItem,
   adaptProjectLinksToLinkItems,
@@ -12,10 +11,12 @@ import {
   type CreateProjectLinkInput,
   type UpdateProjectLinkInput,
 } from "@/lib/api/project-links";
-import type { ModuleDataSource, ProjectModuleDeps } from "./shared-module-types";
+import type { ProjectModuleDeps } from "./shared-module-types";
+
+const LEGACY_MUTATION_ERROR = "Legacy mutations are disabled in API mode";
 
 export type LinksModuleState = {
-  source: ModuleDataSource;
+  source: "api";
   isLoading: boolean;
   isMutating: boolean;
   error: string | null;
@@ -55,14 +56,6 @@ export function LinksProvider({
   const [linksError, setLinksError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!deps.apiMode) {
-      setApiLinks(null);
-      setIsLinksLoading(false);
-      setIsLinksMutating(false);
-      setLinksError(null);
-      return;
-    }
-
     const controller = new AbortController();
 
     setIsLinksLoading(true);
@@ -94,77 +87,28 @@ export function LinksProvider({
     return () => {
       controller.abort();
     };
-  }, [deps.activeProjectSlug, deps.apiMode, deps.apiRuntimeRefreshKey]);
+  }, [deps.activeProjectSlug, deps.apiRuntimeRefreshKey]);
 
-  const resolvedLinks = useMemo<LinkItem[]>(
-    () =>
-      deps.apiMode
-        ? apiLinks ?? ((deps.legacyData.links ?? []) as LinkItem[])
-        : ((deps.legacyData.links ?? []) as LinkItem[]),
-    [apiLinks, deps.apiMode, deps.legacyData.links]
-  );
+  const resolvedLinks = useMemo<LinkItem[]>(() => apiLinks ?? [], [apiLinks]);
 
-  const addLink = useCallback(
-    (link: Omit<LinkItem, "id"> & { id?: string }): LinkItem => {
-      const links = deps.legacyData.links ?? [];
-      const maxOrder = links.reduce((mx: number, l: LinkItem) => Math.max(mx, l.sortOrder), -1);
-      const full: LinkItem = {
-        ...link,
-        id: link.id ?? generateId("link"),
-        sortOrder: link.sortOrder ?? maxOrder + 1,
-      };
-      deps.setLegacyData({ ...deps.legacyData, links: [...links, full] });
-      return full;
-    },
-    [deps]
-  );
+  const addLink = useCallback((_link: Omit<LinkItem, "id"> & { id?: string }): LinkItem => {
+    throw new Error(LEGACY_MUTATION_ERROR);
+  }, []);
 
-  const updateLink = useCallback(
-    (updated: LinkItem): void => {
-      deps.setLegacyData({
-        ...deps.legacyData,
-        links: (deps.legacyData.links ?? []).map((l: LinkItem) => (l.id === updated.id ? updated : l)),
-      });
-    },
-    [deps]
-  );
+  const updateLink = useCallback((_updated: LinkItem): void => {
+    throw new Error(LEGACY_MUTATION_ERROR);
+  }, []);
 
-  const deleteLink = useCallback(
-    (id: string): void => {
-      deps.setLegacyData({
-        ...deps.legacyData,
-        links: (deps.legacyData.links ?? []).filter((l: LinkItem) => l.id !== id),
-      });
-    },
-    [deps]
-  );
+  const deleteLink = useCallback((_id: string): void => {
+    throw new Error(LEGACY_MUTATION_ERROR);
+  }, []);
 
-  const reorderLinks = useCallback(
-    (orderedItems: LinkItem[]): void => {
-      const updated = (deps.legacyData.links ?? []).map((l: LinkItem) => {
-        const idx = orderedItems.findIndex((o) => o.id === l.id);
-        return idx === -1 ? l : { ...l, sortOrder: idx };
-      });
-      deps.setLegacyData({ ...deps.legacyData, links: updated });
-    },
-    [deps]
-  );
+  const reorderLinks = useCallback((_orderedItems: LinkItem[]): void => {
+    throw new Error(LEGACY_MUTATION_ERROR);
+  }, []);
 
   const createManagedLink = useCallback(
     async (input: CreateProjectLinkInput): Promise<void> => {
-      if (!deps.apiMode) {
-        addLink({
-          title: input.title,
-          url: input.url,
-          description: input.description,
-          icon: input.icon,
-          sortOrder: resolvedLinks.length,
-          openInNewTab: input.isInternal ? false : input.openInNewTab,
-          isInternal: input.isInternal,
-        });
-        return;
-      }
-
       if (apiLinks === null) {
         throw new Error("Backend links are not ready yet.");
       }
@@ -183,32 +127,11 @@ export function LinksProvider({
         setIsLinksMutating(false);
       }
     },
-    [addLink, apiLinks, deps.activeProjectSlug, deps.apiMode, resolvedLinks.length]
+    [apiLinks, deps.activeProjectSlug]
   );
 
   const editManagedLink = useCallback(
     async (id: string, input: UpdateProjectLinkInput): Promise<void> => {
-      if (!deps.apiMode) {
-        const existing = resolvedLinks.find((link) => link.id === id);
-
-        if (!existing) {
-          throw new Error("Link nie został znaleziony.");
-        }
-
-        const nextIsInternal = input.isInternal ?? existing.isInternal;
-
-        updateLink({
-          ...existing,
-          title: input.title ?? existing.title,
-          url: input.url ?? existing.url,
-          description: input.description ?? existing.description,
-          icon: input.icon ?? existing.icon,
-          openInNewTab: nextIsInternal ? false : (input.openInNewTab ?? existing.openInNewTab),
-          isInternal: nextIsInternal,
-        });
-        return;
-      }
-
       if (apiLinks === null) {
         throw new Error("Backend links are not ready yet.");
       }
@@ -229,16 +152,11 @@ export function LinksProvider({
         setIsLinksMutating(false);
       }
     },
-    [apiLinks, deps.activeProjectSlug, deps.apiMode, resolvedLinks, updateLink]
+    [apiLinks, deps.activeProjectSlug]
   );
 
   const removeManagedLink = useCallback(
     async (id: string): Promise<void> => {
-      if (!deps.apiMode) {
-        deleteLink(id);
-        return;
-      }
-
       if (apiLinks === null) {
         throw new Error("Backend links are not ready yet.");
       }
@@ -257,16 +175,11 @@ export function LinksProvider({
         setIsLinksMutating(false);
       }
     },
-    [apiLinks, deleteLink, deps.activeProjectSlug, deps.apiMode]
+    [apiLinks, deps.activeProjectSlug]
   );
 
   const reorderManagedLinks = useCallback(
     (orderedItems: LinkItem[]): void => {
-      if (!deps.apiMode) {
-        reorderLinks(orderedItems);
-        return;
-      }
-
       if (apiLinks === null) {
         setLinksError("Backend links are not ready yet.");
         return;
@@ -295,17 +208,17 @@ export function LinksProvider({
         }
       })();
     },
-    [apiLinks, deps.activeProjectSlug, deps.apiMode, reorderLinks]
+    [apiLinks, deps.activeProjectSlug]
   );
 
   const linksModule = useMemo<LinksModuleState>(
     () => ({
-      source: deps.apiMode ? "api" : "legacy",
+      source: "api",
       isLoading: isLinksLoading,
       isMutating: isLinksMutating,
       error: linksError,
-      canWrite: !deps.apiMode || apiLinks !== null,
-      canReorder: !deps.apiMode || apiLinks !== null,
+      canWrite: apiLinks !== null,
+      canReorder: apiLinks !== null,
       createLink: createManagedLink,
       editLink: editManagedLink,
       removeLink: removeManagedLink,
@@ -314,7 +227,6 @@ export function LinksProvider({
     [
       apiLinks,
       createManagedLink,
-      deps.apiMode,
       editManagedLink,
       isLinksLoading,
       isLinksMutating,

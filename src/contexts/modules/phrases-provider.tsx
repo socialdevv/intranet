@@ -1,6 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { PhraseEntry } from "@/lib/types/domain";
-import { generateId } from "@/lib/utils";
 import {
   adaptProjectPhrase,
   adaptProjectPhrases,
@@ -12,10 +11,12 @@ import {
   type CreateProjectPhraseInput,
   type UpdateProjectPhraseInput,
 } from "@/lib/api/project-phrases";
-import type { ModuleDataSource, ProjectModuleDeps } from "./shared-module-types";
+import type { ProjectModuleDeps } from "./shared-module-types";
+
+const LEGACY_MUTATION_ERROR = "Legacy mutations are disabled in API mode";
 
 export type PhrasesModuleState = {
-  source: ModuleDataSource;
+  source: "api";
   isLoading: boolean;
   isMutating: boolean;
   error: string | null;
@@ -57,14 +58,6 @@ export function PhrasesProvider({
   const [phrasesError, setPhrasesError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!deps.apiMode) {
-      setApiPhrases(null);
-      setIsPhrasesLoading(false);
-      setIsPhrasesMutating(false);
-      setPhrasesError(null);
-      return;
-    }
-
     const controller = new AbortController();
 
     setIsPhrasesLoading(true);
@@ -98,72 +91,28 @@ export function PhrasesProvider({
     return () => {
       controller.abort();
     };
-  }, [deps.activeProjectSlug, deps.apiMode, deps.apiRuntimeRefreshKey]);
+  }, [deps.activeProjectSlug, deps.apiRuntimeRefreshKey]);
 
-  const resolvedPhrases = useMemo<PhraseEntry[]>(
-    () =>
-      deps.apiMode
-        ? apiPhrases ?? ((deps.legacyData.phrases ?? []) as PhraseEntry[])
-        : ((deps.legacyData.phrases ?? []) as PhraseEntry[]),
-    [apiPhrases, deps.apiMode, deps.legacyData.phrases]
-  );
+  const resolvedPhrases = useMemo<PhraseEntry[]>(() => apiPhrases ?? [], [apiPhrases]);
 
-  const addPhrase = useCallback(
-    (p: Omit<PhraseEntry, "id"> & { id?: string }): PhraseEntry => {
-      const phrases = deps.legacyData.phrases ?? [];
-      const maxOrder = phrases.reduce((mx: number, x: PhraseEntry) => Math.max(mx, x.sortOrder), -1);
-      const full: PhraseEntry = { ...p, id: p.id ?? generateId("phrase"), sortOrder: maxOrder + 1 };
-      deps.setLegacyData({ ...deps.legacyData, phrases: [...phrases, full] });
-      return full;
-    },
-    [deps]
-  );
+  const addPhrase = useCallback((_p: Omit<PhraseEntry, "id"> & { id?: string }): PhraseEntry => {
+    throw new Error(LEGACY_MUTATION_ERROR);
+  }, []);
 
-  const updatePhrase = useCallback(
-    (updated: PhraseEntry): void => {
-      deps.setLegacyData({
-        ...deps.legacyData,
-        phrases: (deps.legacyData.phrases ?? []).map((phrase: PhraseEntry) =>
-          phrase.id === updated.id ? updated : phrase
-        ),
-      });
-    },
-    [deps]
-  );
+  const updatePhrase = useCallback((_updated: PhraseEntry): void => {
+    throw new Error(LEGACY_MUTATION_ERROR);
+  }, []);
 
-  const deletePhrase = useCallback(
-    (id: string): void => {
-      deps.setLegacyData({
-        ...deps.legacyData,
-        phrases: (deps.legacyData.phrases ?? []).filter((phrase: PhraseEntry) => phrase.id !== id),
-      });
-    },
-    [deps]
-  );
+  const deletePhrase = useCallback((_id: string): void => {
+    throw new Error(LEGACY_MUTATION_ERROR);
+  }, []);
 
-  const reorderPhrases = useCallback(
-    (orderedItems: PhraseEntry[]): void => {
-      const updated = (deps.legacyData.phrases ?? []).map((phrase: PhraseEntry) => {
-        const idx = orderedItems.findIndex((item) => item.id === phrase.id);
-        return idx === -1 ? phrase : { ...phrase, sortOrder: idx };
-      });
-      deps.setLegacyData({ ...deps.legacyData, phrases: updated });
-    },
-    [deps]
-  );
+  const reorderPhrases = useCallback((_orderedItems: PhraseEntry[]): void => {
+    throw new Error(LEGACY_MUTATION_ERROR);
+  }, []);
 
   const createManagedPhrase = useCallback(
     async (input: CreateProjectPhraseInput): Promise<void> => {
-      if (!deps.apiMode) {
-        addPhrase({
-          title: input.title,
-          content: input.content,
-          requiresConfirmation: input.requiresConfirmation,
-          sortOrder: 0,
-        });
-        return;
-      }
-
       if (apiPhrases === null) {
         throw new Error("Backend approved responses are not ready yet.");
       }
@@ -182,28 +131,11 @@ export function PhrasesProvider({
         setIsPhrasesMutating(false);
       }
     },
-    [addPhrase, apiPhrases, deps.activeProjectSlug, deps.apiMode]
+    [apiPhrases, deps.activeProjectSlug]
   );
 
   const editManagedPhrase = useCallback(
     async (id: string, input: UpdateProjectPhraseInput): Promise<void> => {
-      if (!deps.apiMode) {
-        const existing = resolvedPhrases.find((phrase) => phrase.id === id);
-
-        if (!existing) {
-          throw new Error("Gotowy zwrot nie został znaleziony.");
-        }
-
-        updatePhrase({
-          ...existing,
-          title: input.title ?? existing.title,
-          content: input.content ?? existing.content,
-          requiresConfirmation: input.requiresConfirmation ?? existing.requiresConfirmation,
-          sortOrder: input.sortOrder ?? existing.sortOrder,
-        });
-        return;
-      }
-
       if (apiPhrases === null) {
         throw new Error("Backend approved responses are not ready yet.");
       }
@@ -228,16 +160,11 @@ export function PhrasesProvider({
         setIsPhrasesMutating(false);
       }
     },
-    [apiPhrases, deps.activeProjectSlug, deps.apiMode, resolvedPhrases, updatePhrase]
+    [apiPhrases, deps.activeProjectSlug]
   );
 
   const removeManagedPhrase = useCallback(
     async (id: string): Promise<void> => {
-      if (!deps.apiMode) {
-        deletePhrase(id);
-        return;
-      }
-
       if (apiPhrases === null) {
         throw new Error("Backend approved responses are not ready yet.");
       }
@@ -256,16 +183,11 @@ export function PhrasesProvider({
         setIsPhrasesMutating(false);
       }
     },
-    [apiPhrases, deletePhrase, deps.activeProjectSlug, deps.apiMode]
+    [apiPhrases, deps.activeProjectSlug]
   );
 
   const reorderManagedPhrases = useCallback(
     (orderedItems: PhraseEntry[]): void => {
-      if (!deps.apiMode) {
-        reorderPhrases(orderedItems);
-        return;
-      }
-
       if (apiPhrases === null) {
         setPhrasesError("Backend approved responses are not ready yet.");
         return;
@@ -295,17 +217,17 @@ export function PhrasesProvider({
         }
       })();
     },
-    [apiPhrases, deps.activeProjectSlug, deps.apiMode, reorderPhrases]
+    [apiPhrases, deps.activeProjectSlug]
   );
 
   const phrasesModule = useMemo<PhrasesModuleState>(
     () => ({
-      source: deps.apiMode ? "api" : "legacy",
+      source: "api",
       isLoading: isPhrasesLoading,
       isMutating: isPhrasesMutating,
       error: phrasesError,
-      canWrite: !deps.apiMode || apiPhrases !== null,
-      canReorder: !deps.apiMode || apiPhrases !== null,
+      canWrite: apiPhrases !== null,
+      canReorder: apiPhrases !== null,
       createPhrase: createManagedPhrase,
       editPhrase: editManagedPhrase,
       removePhrase: removeManagedPhrase,
@@ -314,7 +236,6 @@ export function PhrasesProvider({
     [
       apiPhrases,
       createManagedPhrase,
-      deps.apiMode,
       editManagedPhrase,
       isPhrasesLoading,
       isPhrasesMutating,

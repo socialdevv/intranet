@@ -26,14 +26,8 @@ import type { LeadConfig } from "@/lib/types/lead";
 import { CURRENT_SCHEMA_VERSION } from "@/lib/data/store";
 import { adaptProjectBootstrapLeadConfig } from "@/lib/api/project-bootstrap";
 import { replaceProjectLeadConfig } from "@/lib/api/project-configuration";
-import type {
-  DataExportDiagnostics,
-  DataImportDiagnostics,
-  DataLoadDiagnostics,
-  DataStorageMode,
-  UploadFileOptions,
-  UploadFileResult,
-} from "@/lib/data/access";
+import type { UploadFileOptions, UploadFileResult } from "@/lib/data/access";
+import type { DataExportDiagnostics } from "@/lib/data/store";
 import { useToast } from "@/contexts/toast-context";
 import {
   PlatformScopeProvider,
@@ -106,11 +100,7 @@ function sanitizeLeadConfigPhraseReferences(
   return changed ? { ...config, rules } : config;
 }
 
-export type {
-  PersistenceStatus,
-  PlatformBootstrapState,
-  DataPersistenceState,
-} from "@/contexts/platform-scope-provider";
+export type { PlatformBootstrapState, DataPersistenceState } from "@/contexts/platform-scope-provider";
 export type {
   ProjectBootstrapState,
   ShellCurrentUserDisplay,
@@ -275,34 +265,14 @@ type DataContextValue = {
     code: string;
     name: string;
   }>;
-  // ─ JSON workflow ─
   appBuildVersion: string | null;
   currentSchemaVersion: number;
   dataSchemaVersion: number | null;
-  lastLoadDiagnostics: DataLoadDiagnostics | null;
-  lastImportDiagnostics: DataImportDiagnostics | null;
   lastExportDiagnostics: DataExportDiagnostics | null;
-  dataStorageMode: DataStorageMode;
   persistenceState: DataPersistenceState;
-  /** Re-attempts persisting pending in-memory changes after a failed save. */
-  retryPendingSave: () => void;
   exportData: (filename?: string) => DataExportDiagnostics;
-  importData: (jsonString: string) => {
-    ok: boolean;
-    error?: string;
-    diagnostics?: DataImportDiagnostics;
-  };
   reloadData: () => Promise<{ ok: boolean; error?: string }>;
-  resetToDefault: () => Promise<{ ok: boolean; error?: string }>;
-  /** Removes the localStorage override key. In-memory state is NOT changed.
-   *  After this, a fresh page load will fall back to the bundled JSON. */
-  clearLocalOverrides: () => void;
-  /** Future-ready upload integration point used by API-assisted deployments. */
   uploadFile: (file: File, options?: UploadFileOptions) => Promise<UploadFileResult>;
-  /** True when the app is running from localStorage overrides rather than bundled JSON. */
-  localOverrideActive: boolean;
-  /** True when a local override key exists but is intentionally ignored in API mode. */
-  storedLocalOverrideAvailable: boolean;
   /** All navbar announcements. */
   announcements: Announcement[];
   /** Add a new announcement. ID is generated if not provided. */
@@ -336,18 +306,9 @@ function DataProviderModules({ children }: { children: React.ReactNode }) {
   const moduleDeps = useMemo<ProjectModuleDeps>(
     () => ({
       activeProjectSlug: project.activeProjectSlug,
-      apiMode: platform.apiMode,
       apiRuntimeRefreshKey: platform.apiRuntimeRefreshKey,
-      legacyData: platform.data,
-      setLegacyData: platform.setData,
     }),
-    [
-      project.activeProjectSlug,
-      platform.apiMode,
-      platform.apiRuntimeRefreshKey,
-      platform.data,
-      platform.setData,
-    ]
+    [project.activeProjectSlug, platform.apiRuntimeRefreshKey]
   );
 
   return (
@@ -393,8 +354,15 @@ function DataProviderFacade({ children }: { children: React.ReactNode }) {
   const templatesFacade = useTemplatesModule();
   const phrasesFacade = usePhrasesModule();
 
-  const effectiveIsLoading = platform.isLoading || knowledge.contributesToAppLoading;
-  const effectiveLoadError = platform.loadError || knowledge.knowledgeError || "";
+  const effectiveIsLoading =
+    platform.platformBootstrapState.status === "loading" ||
+    project.projectBootstrapState.status === "loading" ||
+    knowledge.contributesToAppLoading;
+  const effectiveLoadError =
+    platform.loadError ||
+    (project.projectBootstrapState.status === "failed" ? project.projectBootstrapState.error : "") ||
+    knowledge.knowledgeError ||
+    "";
 
   const resolvedLeadConfig = useMemo(() => {
     const fallbackConfig = platform.data.leadConfig ?? { questions: [], rules: [] };
@@ -453,11 +421,6 @@ function DataProviderFacade({ children }: { children: React.ReactNode }) {
     async (config: LeadConfig): Promise<void> => {
       const sanitizedConfig = sanitizeLeadConfigPhraseReferences(config, phrasesFacade.phrases);
 
-      if (!platform.apiMode) {
-        platform.setData({ ...platform.data, leadConfig: sanitizedConfig });
-        return;
-      }
-
       try {
         const payload = await replaceProjectLeadConfig(project.activeProjectSlug, sanitizedConfig);
         project.syncProjectBootstrapConfiguration(payload.data.configuration);
@@ -470,7 +433,7 @@ function DataProviderFacade({ children }: { children: React.ReactNode }) {
         throw new Error(message);
       }
     },
-    [phrasesFacade.phrases, platform, project, toast]
+    [phrasesFacade.phrases, project, toast]
   );
 
   const value = useMemo<DataContextValue>(
@@ -536,12 +499,8 @@ function DataProviderFacade({ children }: { children: React.ReactNode }) {
       appBuildVersion: platform.appBuildVersion,
       currentSchemaVersion: CURRENT_SCHEMA_VERSION,
       dataSchemaVersion: platform.dataSchemaVersion,
-      lastLoadDiagnostics: platform.lastLoadDiagnostics,
-      lastImportDiagnostics: platform.lastImportDiagnostics,
       lastExportDiagnostics: platform.lastExportDiagnostics,
-      dataStorageMode: platform.dataStorageMode,
       persistenceState: platform.persistenceState,
-      retryPendingSave: platform.retryPendingSave,
       setData: platform.setData,
       updateAuthHashes: platform.updateAuthHashes,
       addCategory: knowledge.addCategory,
@@ -574,14 +533,9 @@ function DataProviderFacade({ children }: { children: React.ReactNode }) {
       deleteLink: linksFacade.deleteLink,
       reorderLinks: linksFacade.reorderLinks,
       exportData: platform.exportData,
-      importData: platform.importData,
       reloadData: platform.reloadData,
-      resetToDefault: platform.resetToDefault,
-      clearLocalOverrides: platform.clearLocalOverrides,
       uploadFile: (file, options) =>
         platform.uploadFile(file, { ...options, projectSlug: project.activeProjectSlug }),
-      localOverrideActive: platform.localOverrideActive,
-      storedLocalOverrideAvailable: platform.storedLocalOverrideAvailable,
     }),
     [
       runtimeData,

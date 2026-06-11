@@ -1,4 +1,4 @@
-export type BootstrapPreviewDataSourceMode = "legacy-json" | "api";
+export type BootstrapPreviewDataSourceMode = "api";
 
 export type ApiEnvelope<T> = {
   data: T;
@@ -8,23 +8,48 @@ export type ApiEnvelope<T> = {
   };
 };
 
-export function resolveBootstrapPreviewDataSourceMode(
-  rawValue: string | undefined
-): BootstrapPreviewDataSourceMode {
-  return rawValue === "api" ? "api" : "legacy-json";
-}
-
 export function getBootstrapPreviewDataSourceMode(): BootstrapPreviewDataSourceMode {
-  return resolveBootstrapPreviewDataSourceMode(import.meta.env.VITE_ALTCLOUD_PLATFORM_DATA_SOURCE);
+  return "api";
 }
 
 export function isApiBootstrapPreviewEnabled(): boolean {
-  return getBootstrapPreviewDataSourceMode() === "api";
+  return true;
 }
 
+const PREVIEW_AUTH_USER_STORAGE_KEY = "altcloud.preview-auth-user-email";
+
 export function getSelectedBootstrapPreviewDevUserEmail(): string | null {
+  if (typeof window !== "undefined") {
+    const storedEmail = window.sessionStorage.getItem(PREVIEW_AUTH_USER_STORAGE_KEY)?.trim();
+    if (storedEmail) {
+      return storedEmail;
+    }
+  }
+
   const selectedEmail = import.meta.env.VITE_ALTCLOUD_API_DEV_USER_EMAIL?.trim();
   return selectedEmail || null;
+}
+
+export function setSelectedBootstrapPreviewDevUserEmail(email: string): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const normalizedEmail = email.trim();
+  if (!normalizedEmail) {
+    window.sessionStorage.removeItem(PREVIEW_AUTH_USER_STORAGE_KEY);
+    return;
+  }
+
+  window.sessionStorage.setItem(PREVIEW_AUTH_USER_STORAGE_KEY, normalizedEmail);
+}
+
+export function clearSelectedBootstrapPreviewDevUserEmail(): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.sessionStorage.removeItem(PREVIEW_AUTH_USER_STORAGE_KEY);
 }
 
 export function createBootstrapPreviewRequestHeaders(): HeadersInit {

@@ -13,6 +13,7 @@ import {
 import { useData } from "@/contexts/data-context";
 import { useToast } from "@/contexts/toast-context";
 import { useDragSort } from "@/hooks/useDragSort";
+import { useProjectRouting } from "@/hooks/useProjectRouting";
 import {
   adminArticleEditorPath,
   knowledgeArticlePath,
@@ -150,6 +151,8 @@ function ArticleRow({
   confirmDeleteArticle: (page: KnowledgePage) => Promise<void>;
   dragBinding: DragBinding;
 }) {
+  const { resolveHref } = useProjectRouting();
+
   return (
     <div
       draggable
@@ -207,7 +210,7 @@ function ArticleRow({
             Podgląd
           </Link>
           <Link
-            to={adminArticleEditorPath(page.id)}
+            to={resolveHref(adminArticleEditorPath(page.id))}
             className="inline-flex items-center gap-1 text-[#1d4f91] transition hover:underline dark:text-[#60a5fa]"
           >
             <Pencil size={13} />
@@ -250,6 +253,7 @@ function CategoryRow({
   reorderCategoryChildren,
   dragBinding,
 }: CategoryRowProps) {
+  const { resolveHref } = useProjectRouting();
   const orderedChildren = useMemo(
     () => buildOrderedChildren(category, categories, pages),
     [category, categories, pages]
@@ -354,7 +358,7 @@ function CategoryRow({
         ) : (
           <div className="flex shrink-0 flex-wrap items-center gap-3 text-xs">
             <Link
-              to={`${adminArticleEditorPath("nowy")}?categoryId=${category.id}`}
+              to={resolveHref(`${adminArticleEditorPath("nowy")}?categoryId=${category.id}`)}
               className="inline-flex items-center gap-1 text-[#1d4f91] transition hover:underline dark:text-[#60a5fa]"
             >
               <Plus size={13} />
@@ -467,6 +471,7 @@ function CategoryRow({
 }
 
 export default function OrderManager() {
+  const { resolveHref } = useProjectRouting();
   const {
     categories,
     pages,
@@ -671,7 +676,7 @@ export default function OrderManager() {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Link
-              to={adminArticleEditorPath("nowy")}
+              to={resolveHref(adminArticleEditorPath("nowy"))}
               className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#d1d5db] bg-white px-3 text-sm font-medium text-[#374151] transition hover:bg-[#f8fafc] dark:border-[#334155] dark:bg-[#0f172a] dark:text-[#e2e8f0] dark:hover:bg-[#132033]"
             >
               <Plus size={14} />

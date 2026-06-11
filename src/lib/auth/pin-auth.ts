@@ -3,7 +3,7 @@
  *
  * Full implementation in Phase 2:
  *  - SHA-256 via crypto.subtle.digest
- *  - Compare against hashes stored in altcloud-data.json
+ *  - Compare against hashes stored in server-side configuration
  */
 
 export async function hashPin(pin: string): Promise<string> {

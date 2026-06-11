@@ -1,6 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { OrgEntry } from "@/lib/types/domain";
-import { generateId } from "@/lib/utils";
 import {
   adaptProjectImportantTopic,
   adaptProjectImportantTopics,
@@ -11,10 +10,12 @@ import {
   type CreateProjectImportantTopicInput,
   type UpdateProjectImportantTopicInput,
 } from "@/lib/api/project-important-topics";
-import type { ModuleDataSource, ProjectModuleDeps } from "./shared-module-types";
+import type { ProjectModuleDeps } from "./shared-module-types";
+
+const LEGACY_MUTATION_ERROR = "Legacy mutations are disabled in API mode";
 
 export type ImportantTopicsModuleState = {
-  source: ModuleDataSource;
+  source: "api";
   isLoading: boolean;
   isMutating: boolean;
   error: string | null;
@@ -63,14 +64,6 @@ export function ImportantTopicsProvider({
   const [importantTopicsError, setImportantTopicsError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!deps.apiMode) {
-      setApiImportantTopics(null);
-      setIsImportantTopicsLoading(false);
-      setIsImportantTopicsMutating(false);
-      setImportantTopicsError(null);
-      return;
-    }
-
     const controller = new AbortController();
 
     setIsImportantTopicsLoading(true);
@@ -104,66 +97,24 @@ export function ImportantTopicsProvider({
     return () => {
       controller.abort();
     };
-  }, [deps.activeProjectSlug, deps.apiMode, deps.apiRuntimeRefreshKey]);
+  }, [deps.activeProjectSlug, deps.apiRuntimeRefreshKey]);
 
-  const resolvedOrgEntries = useMemo<OrgEntry[]>(
-    () =>
-      deps.apiMode
-        ? apiImportantTopics ?? ((deps.legacyData.orgEntries ?? []) as OrgEntry[])
-        : ((deps.legacyData.orgEntries ?? []) as OrgEntry[]),
-    [apiImportantTopics, deps.apiMode, deps.legacyData.orgEntries]
-  );
+  const resolvedOrgEntries = useMemo<OrgEntry[]>(() => apiImportantTopics ?? [], [apiImportantTopics]);
 
-  const addOrgEntry = useCallback(
-    (e: Omit<OrgEntry, "id"> & { id?: string }): OrgEntry => {
-      const full: OrgEntry = { ...e, id: e.id ?? generateId("org") };
-      deps.setLegacyData({
-        ...deps.legacyData,
-        orgEntries: [...(deps.legacyData.orgEntries ?? []), full],
-      });
-      return full;
-    },
-    [deps]
-  );
+  const addOrgEntry = useCallback((_e: Omit<OrgEntry, "id"> & { id?: string }): OrgEntry => {
+    throw new Error(LEGACY_MUTATION_ERROR);
+  }, []);
 
-  const updateOrgEntry = useCallback(
-    (updated: OrgEntry): void => {
-      deps.setLegacyData({
-        ...deps.legacyData,
-        orgEntries: (deps.legacyData.orgEntries ?? []).map((entry: OrgEntry) =>
-          entry.id === updated.id ? updated : entry
-        ),
-      });
-    },
-    [deps]
-  );
+  const updateOrgEntry = useCallback((_updated: OrgEntry): void => {
+    throw new Error(LEGACY_MUTATION_ERROR);
+  }, []);
 
-  const deleteOrgEntry = useCallback(
-    (id: string): void => {
-      deps.setLegacyData({
-        ...deps.legacyData,
-        orgEntries: (deps.legacyData.orgEntries ?? []).filter((entry: OrgEntry) => entry.id !== id),
-      });
-    },
-    [deps]
-  );
+  const deleteOrgEntry = useCallback((_id: string): void => {
+    throw new Error(LEGACY_MUTATION_ERROR);
+  }, []);
 
   const createManagedImportantTopic = useCallback(
     async (input: CreateProjectImportantTopicInput): Promise<void> => {
-      if (!deps.apiMode) {
-        const nowIso = new Date().toISOString();
-
-        addOrgEntry({
-          title: input.title,
-          body: input.body,
-          status: input.status,
-          entryDate: input.entryDate,
-          createdAt: nowIso,
-          updatedAt: nowIso,
-        });
-        return;
-      }
-
       if (apiImportantTopics === null) {
         throw new Error("Backend important topics are not ready yet.");
       }
@@ -184,29 +135,11 @@ export function ImportantTopicsProvider({
         setIsImportantTopicsMutating(false);
       }
     },
-    [addOrgEntry, apiImportantTopics, deps.activeProjectSlug, deps.apiMode]
+    [apiImportantTopics, deps.activeProjectSlug]
   );
 
   const editManagedImportantTopic = useCallback(
     async (id: string, input: UpdateProjectImportantTopicInput): Promise<void> => {
-      if (!deps.apiMode) {
-        const existing = resolvedOrgEntries.find((entry) => entry.id === id);
-
-        if (!existing) {
-          throw new Error("Temat organizacyjny nie został znaleziony.");
-        }
-
-        updateOrgEntry({
-          ...existing,
-          title: input.title ?? existing.title,
-          body: input.body ?? existing.body,
-          status: input.status ?? existing.status,
-          entryDate: input.entryDate ?? existing.entryDate,
-          updatedAt: new Date().toISOString(),
-        });
-        return;
-      }
-
       if (apiImportantTopics === null) {
         throw new Error("Backend important topics are not ready yet.");
       }
@@ -231,16 +164,11 @@ export function ImportantTopicsProvider({
         setIsImportantTopicsMutating(false);
       }
     },
-    [apiImportantTopics, deps.activeProjectSlug, deps.apiMode, resolvedOrgEntries, updateOrgEntry]
+    [apiImportantTopics, deps.activeProjectSlug]
   );
 
   const removeManagedImportantTopic = useCallback(
     async (id: string): Promise<void> => {
-      if (!deps.apiMode) {
-        deleteOrgEntry(id);
-        return;
-      }
-
       if (apiImportantTopics === null) {
         throw new Error("Backend important topics are not ready yet.");
       }
@@ -259,16 +187,16 @@ export function ImportantTopicsProvider({
         setIsImportantTopicsMutating(false);
       }
     },
-    [apiImportantTopics, deleteOrgEntry, deps.activeProjectSlug, deps.apiMode]
+    [apiImportantTopics, deps.activeProjectSlug]
   );
 
   const importantTopicsModule = useMemo<ImportantTopicsModuleState>(
     () => ({
-      source: deps.apiMode ? "api" : "legacy",
+      source: "api",
       isLoading: isImportantTopicsLoading,
       isMutating: isImportantTopicsMutating,
       error: importantTopicsError,
-      canWrite: !deps.apiMode || apiImportantTopics !== null,
+      canWrite: apiImportantTopics !== null,
       createTopic: createManagedImportantTopic,
       editTopic: editManagedImportantTopic,
       removeTopic: removeManagedImportantTopic,
@@ -276,7 +204,6 @@ export function ImportantTopicsProvider({
     [
       apiImportantTopics,
       createManagedImportantTopic,
-      deps.apiMode,
       editManagedImportantTopic,
       importantTopicsError,
       isImportantTopicsLoading,

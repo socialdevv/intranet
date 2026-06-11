@@ -5,7 +5,7 @@ type Theme = "light" | "dark";
 
 /**
  * Dedicated localStorage key for the UI theme preference.
- * Kept intentionally separate from `altcloud_data` (the main app data key) so:
+ * Kept intentionally separate from business API state so:
  *  - clearing / resetting app data never resets the theme
  *  - importing / exporting app data does not carry theme preference
  *  - admin workflows (data wipes, imports) leave the chosen theme intact

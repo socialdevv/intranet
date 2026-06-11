@@ -7,6 +7,15 @@ import {
   suggestAltFromFilename,
   type MediaAssetKind,
 } from "@/lib/media/assets";
+import {
+  buildWrongMediaKindMessage,
+  localizeUploadErrorMessage,
+} from "@/lib/media/upload-messages";
+import {
+  describeUploadLimitForKind,
+  validateClientUploadSize,
+} from "@/lib/media/upload-policy";
+import type { MediaUploadResult } from "@/lib/media/upload";
 
 type UploadTone = "success" | "info" | "error";
 
@@ -14,12 +23,6 @@ const ACCEPT_BY_KIND: Record<MediaAssetKind, string> = {
   image: "image/*",
   video: "video/*",
   file: "*/*",
-};
-
-const LIMIT_LABELS: Record<MediaAssetKind, string> = {
-  image: "maks. 5 MB",
-  video: "maks. 500 MB",
-  file: "maks. 10 MB",
 };
 
 function fileMatchesKind(file: File, mediaKind: MediaAssetKind): boolean {
@@ -48,6 +51,14 @@ function toneClassName(tone: UploadTone): string {
   }
 
   return "text-[#475569]";
+}
+
+function resolveUploadFailureTone(result: MediaUploadResult & { ok: false }): UploadTone {
+  if (result.code === "not-configured" || result.code === "network") {
+    return "info";
+  }
+
+  return "error";
 }
 
 type Props = {
@@ -81,18 +92,38 @@ export default function MediaUploadDropzone({
   const [notice, setNotice] = useState("");
   const [noticeTone, setNoticeTone] = useState<UploadTone>("info");
 
+  function reportLocalError(message: string) {
+    setNotice(message);
+    setNoticeTone("error");
+    toast("error", message, 4200);
+  }
+
+  function suppressEnterFromFileDialog() {
+    const suppressEnter = (keydownEvent: KeyboardEvent) => {
+      if (keydownEvent.key !== "Enter") {
+        return;
+      }
+
+      keydownEvent.preventDefault();
+      keydownEvent.stopPropagation();
+      window.removeEventListener("keydown", suppressEnter, true);
+    };
+
+    window.addEventListener("keydown", suppressEnter, true);
+    window.setTimeout(() => {
+      window.removeEventListener("keydown", suppressEnter, true);
+    }, 500);
+  }
+
   async function handleFile(file: File) {
-    if (file.size <= 0) {
-      setNotice("Wybrany plik jest pusty.");
-      setNoticeTone("error");
-      toast("error", "Wybrany plik jest pusty.", 4200);
+    const sizeValidation = validateClientUploadSize(file.size, mediaKind);
+    if (!sizeValidation.ok) {
+      reportLocalError(sizeValidation.message);
       return;
     }
 
     if (!fileMatchesKind(file, mediaKind)) {
-      setNotice(`Wybrany plik nie pasuje do typu ${mediaKind}.`);
-      setNoticeTone("error");
-      toast("error", "Wybierz poprawny typ pliku do uploadu.", 4200);
+      reportLocalError(buildWrongMediaKindMessage(mediaKind));
       return;
     }
 
@@ -108,13 +139,14 @@ export default function MediaUploadDropzone({
       });
 
       if (!result.ok) {
-        setNotice(result.message);
-        setNoticeTone(result.code === "not-configured" || result.code === "network" ? "info" : "error");
-        toast(
-          result.code === "not-configured" || result.code === "network" ? "info" : "error",
-          result.message,
-          5200
-        );
+        const message = localizeUploadErrorMessage(result.message, {
+          mediaKind,
+          apiErrorCode: result.apiErrorCode,
+        });
+        const tone = resolveUploadFailureTone(result);
+        setNotice(message);
+        setNoticeTone(tone);
+        toast(tone, message, 5200);
         return;
       }
 
@@ -126,11 +158,15 @@ export default function MediaUploadDropzone({
       });
       setNotice("Plik został wysłany i jest gotowy do użycia w treści artykułu.");
       setNoticeTone("success");
-      toast("success", "Upload zakończony powodzeniem.", 3200);
-    } catch {
-      setNotice("Wystąpił nieoczekiwany błąd uploadu. Spróbuj ponownie.");
+      toast("success", "Przesłanie zakończone powodzeniem.", 3200);
+    } catch (error) {
+      const message = localizeUploadErrorMessage(
+        error instanceof Error ? error.message : "",
+        { mediaKind }
+      );
+      setNotice(message);
       setNoticeTone("error");
-      toast("error", "Nie udało się wykonać uploadu pliku.", 5200);
+      toast("error", message, 5200);
     } finally {
       setIsUploading(false);
     }
@@ -154,6 +190,9 @@ export default function MediaUploadDropzone({
   }
 
   function handlePaste(event: React.ClipboardEvent<HTMLDivElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+
     const items = Array.from(event.clipboardData.items);
     const pastedFiles = items
       .filter((item) => item.kind === "file")
@@ -167,8 +206,27 @@ export default function MediaUploadDropzone({
       return;
     }
 
-    event.preventDefault();
     void handleFile(pastedFile);
+  }
+
+  function handleFileInputChange(event: React.ChangeEvent<HTMLInputElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const selectedFile = event.target.files?.[0];
+    event.target.value = "";
+    if (!selectedFile) {
+      return;
+    }
+
+    suppressEnterFromFileDialog();
+    void handleFile(selectedFile);
+  }
+
+  function handleChooseFileClick(event: React.MouseEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    fileInputRef.current?.click();
   }
 
   return (
@@ -182,16 +240,25 @@ export default function MediaUploadDropzone({
 
       <div
         tabIndex={0}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            event.stopPropagation();
+          }
+        }}
         onDragEnter={(event) => {
           event.preventDefault();
+          event.stopPropagation();
           setDragActive(true);
         }}
         onDragOver={(event) => {
           event.preventDefault();
+          event.stopPropagation();
           setDragActive(true);
         }}
         onDragLeave={(event) => {
           event.preventDefault();
+          event.stopPropagation();
           if (event.currentTarget.contains(event.relatedTarget as Node | null)) {
             return;
           }
@@ -213,12 +280,13 @@ export default function MediaUploadDropzone({
               Przeciągnij plik tutaj lub wklej go ze schowka
             </p>
             <p className="text-[10px] text-[#94a3b8]">
-              {helperText} • {LIMIT_LABELS[mediaKind]}
+              {helperText} • {describeUploadLimitForKind(mediaKind)}
             </p>
           </div>
           <button
             type="button"
-            onClick={() => fileInputRef.current?.click()}
+            form=""
+            onClick={handleChooseFileClick}
             disabled={isUploading}
             className="ui-btn ui-btn-neutral h-8 px-3 text-[11px] font-medium disabled:opacity-50"
           >
@@ -233,13 +301,9 @@ export default function MediaUploadDropzone({
         type="file"
         accept={ACCEPT_BY_KIND[mediaKind]}
         className="hidden"
-        onChange={(event) => {
-          const selectedFile = event.target.files?.[0];
-          event.target.value = "";
-          if (!selectedFile) {
-            return;
-          }
-          void handleFile(selectedFile);
+        onChange={handleFileInputChange}
+        onClick={(event) => {
+          event.stopPropagation();
         }}
       />
 

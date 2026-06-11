@@ -19,14 +19,28 @@ import {
   recordAuditLogBestEffort,
 } from "./audit-log.js";
 import {
+  countProjectVideoUploadTierUsage,
+  createUploadTierCapacityError,
+  resolvePerKindMaxBytes,
+  VIDEO_SMALL_TIER_MAX_BYTES,
+  validateIncomingVideoUploadCapacity,
+} from "./project-upload-capacity.js";
+import {
   resolveAbsoluteMediaPath,
   resolveStoredMediaPath,
 } from "./media-storage.js";
 
-const uploadRequestSchema = z.object({
-  projectSlug: z.string().trim().min(1, "Project slug is required.").max(191),
-  mediaKind: z.nativeEnum(MediaKind),
-});
+const uploadRequestSchema = z
+  .object({
+    projectSlug: z.string().trim().min(1).max(191).optional(),
+    projectId: z.string().uuid("Project id must be a valid UUID.").optional(),
+    mediaKind: z.nativeEnum(MediaKind),
+    sizeBytes: z.coerce.number().int().positive().optional(),
+  })
+  .refine((value) => Boolean(value.projectSlug || value.projectId), {
+    message: "Either projectSlug or projectId is required.",
+    path: ["projectSlug"],
+  });
 
 const DEFAULT_UPLOAD_POLICIES: Record<
   MediaKind,
@@ -41,7 +55,7 @@ const DEFAULT_UPLOAD_POLICIES: Record<
     allowedMimePatterns: ["application/*", "text/*"],
   },
   video: {
-    maxBytes: BigInt(500 * 1024 * 1024),
+    maxBytes: BigInt(300 * 1024 * 1024),
     allowedMimePatterns: ["video/*"],
   },
 };
@@ -96,9 +110,9 @@ type ProjectUploadFailure =
     }
   | {
       ok: false;
-      reason: "too_large";
+      reason: "too_large" | "capacity_exceeded";
       message: string;
-      maxBytes: number;
+      maxBytes?: number;
     }
   | {
       ok: false;
@@ -200,18 +214,45 @@ function buildStoredFilename(
   return `${baseName}_${randomUUID()}${extension}`;
 }
 
-function createByteLimitTransform(maxBytes: number) {
+type UploadStreamGuardOptions = {
+  mediaKind: MediaKind;
+  maxBytes: number;
+  videoTierCounts?: Awaited<ReturnType<typeof countProjectVideoUploadTierUsage>>;
+};
+
+function createUploadStreamGuard(options: UploadStreamGuardOptions) {
   let totalBytes = 0;
+  let largeVideoTierValidated = false;
 
   const transform = new Transform({
     transform(chunk, _encoding, callback) {
       totalBytes += chunk.length;
 
-      if (totalBytes > maxBytes) {
-        const error = new Error(`Uploaded file exceeds the maximum size of ${maxBytes} bytes.`) as NodeJS.ErrnoException;
-        error.code = "FILE_TOO_LARGE";
-        callback(error);
+      if (totalBytes > options.maxBytes) {
+        callback(createUploadTierCapacityError("FILE_TOO_LARGE"));
         return;
+      }
+
+      if (
+        options.mediaKind === MediaKind.video &&
+        options.videoTierCounts &&
+        !largeVideoTierValidated &&
+        totalBytes > VIDEO_SMALL_TIER_MAX_BYTES
+      ) {
+        largeVideoTierValidated = true;
+
+        const capacity = validateIncomingVideoUploadCapacity({
+          counts: options.videoTierCounts,
+          incomingSizeBytes: totalBytes,
+          videoMaxBytes: options.maxBytes,
+        });
+
+        if (!capacity.ok) {
+          const tierError = createUploadTierCapacityError("TIER_CAPACITY_EXCEEDED");
+          tierError.message = capacity.message;
+          callback(tierError);
+          return;
+        }
       }
 
       callback(null, chunk);
@@ -221,33 +262,47 @@ function createByteLimitTransform(maxBytes: number) {
   return {
     transform,
     getBytes: () => totalBytes,
+    finalize: () => {
+      if (totalBytes <= 0) {
+        throw createUploadTierCapacityError("EMPTY_FILE");
+      }
+
+      if (options.mediaKind === MediaKind.video && options.videoTierCounts) {
+        const capacity = validateIncomingVideoUploadCapacity({
+          counts: options.videoTierCounts,
+          incomingSizeBytes: totalBytes,
+          videoMaxBytes: options.maxBytes,
+        });
+
+        if (!capacity.ok) {
+          const tierError = createUploadTierCapacityError("TIER_CAPACITY_EXCEEDED");
+          tierError.message = capacity.message;
+          throw tierError;
+        }
+      }
+
+      return totalBytes;
+    },
   };
 }
 
 async function writeMultipartFileToDisk(
   file: MultipartFile,
   absoluteTargetPath: string,
-  maxBytes: number
+  options: UploadStreamGuardOptions
 ): Promise<number> {
   await mkdir(path.dirname(absoluteTargetPath), { recursive: true });
 
-  const byteLimit = createByteLimitTransform(maxBytes);
+  const streamGuard = createUploadStreamGuard(options);
 
   try {
     await pipeline(
       file.file,
-      byteLimit.transform,
+      streamGuard.transform,
       createWriteStream(absoluteTargetPath, { flags: "wx" })
     );
 
-    const sizeBytes = byteLimit.getBytes();
-    if (sizeBytes <= 0) {
-      const error = new Error("Uploaded file is empty.") as NodeJS.ErrnoException;
-      error.code = "EMPTY_FILE";
-      throw error;
-    }
-
-    return sizeBytes;
+    return streamGuard.finalize();
   } catch (error) {
     await unlink(absoluteTargetPath).catch(() => undefined);
     throw error;
@@ -293,7 +348,9 @@ export async function uploadProjectMediaAsset(
 ): Promise<ProjectUploadSuccess | ProjectUploadFailure> {
   const parsedInput = uploadRequestSchema.safeParse({
     projectSlug: extractMultipartFieldValue(file.fields.projectSlug),
+    projectId: extractMultipartFieldValue(file.fields.projectId),
     mediaKind: extractMultipartFieldValue(file.fields.kind),
+    sizeBytes: extractMultipartFieldValue(file.fields.sizeBytes),
   });
 
   if (!parsedInput.success) {
@@ -305,10 +362,15 @@ export async function uploadProjectMediaAsset(
   }
 
   const project = await prisma.project.findFirst({
-    where: {
-      slug: parsedInput.data.projectSlug,
-      isActive: true,
-    },
+    where: parsedInput.data.projectId
+      ? {
+          id: parsedInput.data.projectId,
+          isActive: true,
+        }
+      : {
+          slug: parsedInput.data.projectSlug,
+          isActive: true,
+        },
     select: {
       id: true,
       slug: true,
@@ -354,8 +416,43 @@ export async function uploadProjectMediaAsset(
 
   const mediaKind = parsedInput.data.mediaKind;
   const policy = await resolveUploadPolicy(prisma, project.id, mediaKind);
-  const maxBytes = Number(policy.maxBytes);
+  const globalMaxBytes = env.UPLOAD_MAX_FILE_SIZE_BYTES;
+  const policyMaxBytes = Number(policy.maxBytes);
+  const perKindMaxBytes = resolvePerKindMaxBytes(mediaKind, globalMaxBytes);
+  const maxBytes = Math.min(policyMaxBytes, perKindMaxBytes);
   const allowedMimePatterns = policy.allowedMimePatterns;
+  const videoTierCounts =
+    mediaKind === MediaKind.video
+      ? await countProjectVideoUploadTierUsage(prisma, project.id)
+      : undefined;
+
+  if (typeof parsedInput.data.sizeBytes === "number") {
+    if (parsedInput.data.sizeBytes > maxBytes) {
+      return {
+        ok: false,
+        reason: "too_large",
+        message: `Uploaded ${mediaKind} exceeds the maximum size of ${maxBytes} bytes.`,
+        maxBytes,
+      };
+    }
+
+    if (mediaKind === MediaKind.video && videoTierCounts) {
+      const declaredVideoCapacity = validateIncomingVideoUploadCapacity({
+        counts: videoTierCounts,
+        incomingSizeBytes: parsedInput.data.sizeBytes,
+        videoMaxBytes: maxBytes,
+      });
+
+      if (!declaredVideoCapacity.ok) {
+        return {
+          ok: false,
+          reason: "capacity_exceeded",
+          message: declaredVideoCapacity.message,
+          maxBytes,
+        };
+      }
+    }
+  }
   const mimeType = file.mimetype.trim().toLowerCase();
   const originalFilename = file.filename.trim();
 
@@ -393,7 +490,11 @@ export async function uploadProjectMediaAsset(
   const absoluteTargetPath = resolveAbsoluteMediaPath(env, storedPath);
 
   try {
-    const sizeBytes = await writeMultipartFileToDisk(file, absoluteTargetPath, maxBytes);
+    const sizeBytes = await writeMultipartFileToDisk(file, absoluteTargetPath, {
+      mediaKind,
+      maxBytes,
+      videoTierCounts,
+    });
 
     await recordAuditLogBestEffort(prisma, {
       actor: currentUser,
@@ -437,16 +538,29 @@ export async function uploadProjectMediaAsset(
       },
     };
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "FILE_TOO_LARGE") {
+    const errorCode = (error as NodeJS.ErrnoException).code;
+
+    if (errorCode === "FILE_TOO_LARGE") {
       return {
         ok: false,
         reason: "too_large",
-        message: `Uploaded file exceeds the ${maxBytes}-byte limit for ${mediaKind} uploads.`,
+        message: `Uploaded ${mediaKind} exceeds the maximum size of ${maxBytes} bytes.`,
         maxBytes,
       };
     }
 
-    if ((error as NodeJS.ErrnoException).code === "EMPTY_FILE") {
+    if (errorCode === "TIER_CAPACITY_EXCEEDED") {
+      return {
+        ok: false,
+        reason: "capacity_exceeded",
+        message:
+          error instanceof Error && error.message
+            ? error.message
+            : "Project upload capacity for this file size tier has been exceeded.",
+      };
+    }
+
+    if (errorCode === "EMPTY_FILE") {
       return {
         ok: false,
         reason: "validation",

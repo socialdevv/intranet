@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { useLocation } from "react-router-dom";
 import { ChevronUp } from "lucide-react";
+import PreviewAuthUserBar from "@/components/layout/preview-auth-user-bar";
 import GlobalSidebar from "@/components/layout/global-sidebar";
 import Sidebar from "@/components/layout/sidebar";
 import Topbar from "@/components/layout/topbar";
@@ -89,6 +90,7 @@ export default function AppShell({
       className="min-h-screen bg-[#f8f9fb] text-[#111827] dark:bg-[#0f172a] dark:text-[#f1f5f9]"
       style={{ "--topbar-h": topbarH } as React.CSSProperties}
     >
+      <PreviewAuthUserBar />
       <Topbar
         onToggleMobile={() => setMobileNavOpen((open) => !open)}
         currentUser={currentUser}

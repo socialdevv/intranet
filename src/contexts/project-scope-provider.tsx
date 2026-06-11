@@ -20,10 +20,6 @@ import {
   type ResolvedModuleSettingsMap,
 } from "@/lib/config/modules";
 import {
-  getBootstrapPreviewDataSourceMode,
-  type BootstrapPreviewDataSourceMode,
-} from "@/lib/api/bootstrap-preview-runtime";
-import {
   adaptProjectBootstrapConfiguration,
   adaptProjectBootstrapHomeSpotlights,
   adaptProjectBootstrapToPreview,
@@ -50,7 +46,7 @@ import {
 export type ProjectBootstrapState =
   | {
       status: "disabled";
-      mode: BootstrapPreviewDataSourceMode;
+      mode: "api";
       routeContext: ProjectBootstrapPreviewRouteContext | null;
     }
   | {
@@ -223,11 +219,8 @@ export function ProjectScopeProvider({ children }: { children: React.ReactNode }
   const { pathname } = useLocation();
   const { push: toast } = useToast();
   const {
-    apiMode,
     apiRuntimeRefreshKey,
     data,
-    setData,
-    setSystemSettings,
     platformBootstrapState,
     syncPlatformBootstrapProject,
   } = usePlatformScope();
@@ -240,12 +233,10 @@ export function ProjectScopeProvider({ children }: { children: React.ReactNode }
   const activeProjectSlug = projectRouteContext?.projectSlug ?? DEFAULT_API_PROJECT_SLUG;
 
   const [projectBootstrapState, setProjectBootstrapState] = useState<ProjectBootstrapState>(() => {
-    const mode = getBootstrapPreviewDataSourceMode();
-
-    if (mode !== "api" || !projectRouteContext) {
+    if (!projectRouteContext) {
       return {
         status: "disabled",
-        mode,
+        mode: "api",
         routeContext: projectRouteContext,
       };
     }
@@ -380,12 +371,12 @@ export function ProjectScopeProvider({ children }: { children: React.ReactNode }
   );
 
   useEffect(() => {
-    if (!apiMode || !projectRouteContext) {
+    if (!projectRouteContext) {
       return;
     }
 
     setProjectBootstrapState((current) => {
-      if (current.mode !== "api" || current.status === "disabled") {
+      if (current.status === "disabled") {
         return current;
       }
 
@@ -413,13 +404,13 @@ export function ProjectScopeProvider({ children }: { children: React.ReactNode }
 
       return current;
     });
-  }, [apiMode, projectRouteContext]);
+  }, [projectRouteContext]);
 
   useEffect(() => {
-    if (!projectRouteContext || !apiMode) {
+    if (!projectRouteContext) {
       setProjectBootstrapState({
         status: "disabled",
-        mode: getBootstrapPreviewDataSourceMode(),
+        mode: "api",
         routeContext: projectRouteContext,
       });
       return;
@@ -474,16 +465,15 @@ export function ProjectScopeProvider({ children }: { children: React.ReactNode }
     return () => {
       controller.abort();
     };
-  }, [apiMode, apiRuntimeRefreshKey, projectRouteSlug]);
+  }, [apiRuntimeRefreshKey, projectRouteSlug]);
 
   const bootstrapProjectConfiguration = useMemo(
     () =>
-      apiMode &&
       projectBootstrapState.status === "ready" &&
       !projectBootstrapState.preview.access.isLocked
         ? projectBootstrapState.preview.configuration
         : null,
-    [apiMode, projectBootstrapState]
+    [projectBootstrapState]
   );
 
   const resolvedHomeSpotlights = useMemo(() => {
@@ -499,7 +489,6 @@ export function ProjectScopeProvider({ children }: { children: React.ReactNode }
     const baseConfiguration = data.configuration ?? {};
 
     if (
-      !apiMode ||
       projectBootstrapState.status !== "ready" ||
       projectBootstrapState.preview.access.isLocked
     ) {
@@ -519,7 +508,7 @@ export function ProjectScopeProvider({ children }: { children: React.ReactNode }
         ...(apiConfiguration.rules ?? {}),
       },
     };
-  }, [apiMode, data.configuration, projectBootstrapState]);
+  }, [data.configuration, projectBootstrapState]);
 
   const enabledModules = useMemo(
     () => resolveEnabledModules(projectConfiguration.modules?.enabled),
@@ -546,21 +535,6 @@ export function ProjectScopeProvider({ children }: { children: React.ReactNode }
 
   const setNavOrder = useCallback(
     async (order: string[]): Promise<void> => {
-      if (!apiMode) {
-        setData({
-          ...data,
-          navOrder: order,
-          configuration: {
-            ...data.configuration,
-            navigation: {
-              ...data.configuration?.navigation,
-              mainNavOrder: order,
-            },
-          },
-        });
-        return;
-      }
-
       try {
         const payload = await updateProjectNavigation(activeProjectSlug, order);
         syncProjectBootstrapConfiguration(payload.data.configuration);
@@ -573,28 +547,11 @@ export function ProjectScopeProvider({ children }: { children: React.ReactNode }
         throw new Error(message);
       }
     },
-    [activeProjectSlug, apiMode, data, setData, syncProjectBootstrapConfiguration, toast]
+    [activeProjectSlug, syncProjectBootstrapConfiguration, toast]
   );
 
   const setModuleEnabled = useCallback(
     async (moduleKey: AppModuleKey, enabled: boolean): Promise<void> => {
-      if (!apiMode) {
-        setData({
-          ...data,
-          configuration: {
-            ...data.configuration,
-            modules: {
-              ...data.configuration?.modules,
-              enabled: {
-                ...resolveEnabledModules(data.configuration?.modules?.enabled),
-                [moduleKey]: enabled,
-              },
-            },
-          },
-        });
-        return;
-      }
-
       try {
         const payload = await updateProjectModuleConfiguration(activeProjectSlug, moduleKey, {
           enabled,
@@ -609,7 +566,7 @@ export function ProjectScopeProvider({ children }: { children: React.ReactNode }
         throw new Error(message);
       }
     },
-    [activeProjectSlug, apiMode, data, setData, syncProjectBootstrapConfiguration, toast]
+    [activeProjectSlug, syncProjectBootstrapConfiguration, toast]
   );
 
   const setModuleSettings = useCallback(
@@ -617,23 +574,6 @@ export function ProjectScopeProvider({ children }: { children: React.ReactNode }
       moduleKey: K,
       settings: NonNullable<AppModuleSettingsMap[K]>
     ): Promise<void> => {
-      if (!apiMode) {
-        setData({
-          ...data,
-          configuration: {
-            ...data.configuration,
-            modules: {
-              ...data.configuration?.modules,
-              settings: {
-                ...(data.configuration?.modules?.settings ?? {}),
-                [moduleKey]: settings,
-              },
-            },
-          },
-        });
-        return Promise.resolve();
-      }
-
       patchProjectBootstrapModuleSettings(moduleKey, settings);
 
       return updateProjectModuleConfiguration(activeProjectSlug, moduleKey, { settings })
@@ -651,10 +591,7 @@ export function ProjectScopeProvider({ children }: { children: React.ReactNode }
     },
     [
       activeProjectSlug,
-      apiMode,
-      data,
       patchProjectBootstrapModuleSettings,
-      setData,
       syncProjectBootstrapConfiguration,
       toast,
     ]
@@ -662,11 +599,6 @@ export function ProjectScopeProvider({ children }: { children: React.ReactNode }
 
   const setHomeSpotlights = useCallback(
     async (items: HomeSpotlight[]): Promise<void> => {
-      if (!apiMode) {
-        setData({ ...data, homeSpotlights: items });
-        return;
-      }
-
       try {
         const payload = await replaceProjectHomeSpotlights(activeProjectSlug, items);
         syncProjectBootstrapConfiguration(payload.data.configuration);
@@ -679,7 +611,7 @@ export function ProjectScopeProvider({ children }: { children: React.ReactNode }
         throw new Error(message);
       }
     },
-    [activeProjectSlug, apiMode, data, setData, syncProjectBootstrapConfiguration, toast]
+    [activeProjectSlug, syncProjectBootstrapConfiguration, toast]
   );
 
   const updateProjectMetadata = useCallback(
@@ -691,22 +623,6 @@ export function ProjectScopeProvider({ children }: { children: React.ReactNode }
       const nextSlug = input.slug.trim().toLowerCase();
       const nextCode = input.code.trim();
       const nextName = input.name.trim();
-
-      if (!apiMode) {
-        setSystemSettings({
-          ...(data.system ?? {}),
-          deployment: {
-            ...(data.system?.deployment ?? {}),
-            projectCode: nextCode,
-            projectDisplayName: nextName,
-          },
-        });
-        return {
-          slug: nextSlug,
-          code: nextCode,
-          name: nextName,
-        };
-      }
 
       try {
         const payload = await updateProjectMetadataRequest(activeProjectSlug, {
@@ -730,15 +646,7 @@ export function ProjectScopeProvider({ children }: { children: React.ReactNode }
         throw new Error(message);
       }
     },
-    [
-      activeProjectSlug,
-      apiMode,
-      data.system,
-      setSystemSettings,
-      syncPlatformBootstrapProject,
-      syncProjectBootstrapProject,
-      toast,
-    ]
+    [activeProjectSlug, syncPlatformBootstrapProject, syncProjectBootstrapProject, toast]
   );
 
   const value = useMemo<ProjectScopeValue>(

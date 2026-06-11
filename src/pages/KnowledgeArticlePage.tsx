@@ -9,6 +9,7 @@ import MatrixPreviewModal from "@/components/knowledge/matrix-preview-modal";
 import ArticleSectionSearch from "@/components/knowledge/article-section-search";
 import { useAuth } from "@/contexts/auth-context";
 import { useData } from "@/contexts/data-context";
+import { useProjectRouting } from "@/hooks/useProjectRouting";
 import { canEditContent } from "@/lib/auth/authorization";
 import {
   ROUTES,
@@ -31,6 +32,7 @@ export default function KnowledgeArticlePage() {
     articleSlug: string;
   }>();
   const { user } = useAuth();
+  const { resolveHref } = useProjectRouting();
   const location = useLocation();
   const { pages, categories, matrix, isLoading } = useData();
   const [modalEntry, setModalEntry] = useState<MatrixDecision | null>(null);
@@ -166,7 +168,7 @@ export default function KnowledgeArticlePage() {
                 )}
                 {isAdmin && page && (
                   <Link
-                    to={adminArticleEditorPath(page.id)}
+                    to={resolveHref(adminArticleEditorPath(page.id))}
                     className="shrink-0 inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#dde5ee] bg-white px-3 text-xs font-medium text-[#374151] transition hover:bg-[#f1f5f9] dark:border-[#334155] dark:bg-[#1e293b] dark:text-[#cbd5e1] dark:hover:bg-[#263347]"
                   >
                     Edytuj

@@ -6,6 +6,7 @@ import {
   type MediaAssetKind,
   type MediaAssetRef,
 } from "@/lib/media/assets";
+import { localizeUploadErrorMessage } from "@/lib/media/upload-messages";
 
 export type MediaUploadRequest = {
   kind: MediaAssetKind;
@@ -25,6 +26,8 @@ export type MediaUploadResult =
       code: Exclude<UploadContractCode, "uploaded-api">;
       message: string;
       suggestedPath?: string;
+      apiErrorCode?: string;
+      httpStatus?: number;
     };
 
 export type UploadMediaFunction = (
@@ -87,7 +90,12 @@ export async function uploadMediaAsset(
   return {
     ok: false,
     code: uploadResult.code,
-    message: uploadResult.error,
+    message: localizeUploadErrorMessage(uploadResult.error, {
+      mediaKind: request.kind,
+      apiErrorCode: uploadResult.apiErrorCode,
+    }),
     suggestedPath,
+    apiErrorCode: uploadResult.apiErrorCode,
+    httpStatus: uploadResult.httpStatus,
   };
 }

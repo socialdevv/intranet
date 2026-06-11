@@ -1,6 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { TextTemplate } from "@/lib/types/domain";
-import { generateId } from "@/lib/utils";
 import {
   adaptProjectTemplate,
   adaptProjectTemplates,
@@ -12,10 +11,12 @@ import {
   type CreateProjectTemplateInput,
   type UpdateProjectTemplateInput,
 } from "@/lib/api/project-templates";
-import type { ModuleDataSource, ProjectModuleDeps } from "./shared-module-types";
+import type { ProjectModuleDeps } from "./shared-module-types";
+
+const LEGACY_MUTATION_ERROR = "Legacy mutations are disabled in API mode";
 
 export type TemplatesModuleState = {
-  source: ModuleDataSource;
+  source: "api";
   isLoading: boolean;
   isMutating: boolean;
   error: string | null;
@@ -57,14 +58,6 @@ export function TemplatesProvider({
   const [templatesError, setTemplatesError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!deps.apiMode) {
-      setApiTemplates(null);
-      setIsTemplatesLoading(false);
-      setIsTemplatesMutating(false);
-      setTemplatesError(null);
-      return;
-    }
-
     const controller = new AbortController();
 
     setIsTemplatesLoading(true);
@@ -98,78 +91,31 @@ export function TemplatesProvider({
     return () => {
       controller.abort();
     };
-  }, [deps.activeProjectSlug, deps.apiMode, deps.apiRuntimeRefreshKey]);
+  }, [deps.activeProjectSlug, deps.apiRuntimeRefreshKey]);
 
-  const resolvedTemplates = useMemo<TextTemplate[]>(
-    () =>
-      deps.apiMode
-        ? apiTemplates ?? ((deps.legacyData.templates ?? []) as TextTemplate[])
-        : ((deps.legacyData.templates ?? []) as TextTemplate[]),
-    [apiTemplates, deps.apiMode, deps.legacyData.templates]
-  );
+  const resolvedTemplates = useMemo<TextTemplate[]>(() => apiTemplates ?? [], [apiTemplates]);
 
   const addTemplate = useCallback(
-    (t: Omit<TextTemplate, "id"> & { id?: string }): TextTemplate => {
-      const full: TextTemplate = { ...t, id: t.id ?? generateId("tpl") };
-      deps.setLegacyData({
-        ...deps.legacyData,
-        templates: [...(deps.legacyData.templates ?? []), full],
-      });
-      return full;
+    (_t: Omit<TextTemplate, "id"> & { id?: string }): TextTemplate => {
+      throw new Error(LEGACY_MUTATION_ERROR);
     },
-    [deps]
+    []
   );
 
-  const updateTemplate = useCallback(
-    (updated: TextTemplate): void => {
-      deps.setLegacyData({
-        ...deps.legacyData,
-        templates: (deps.legacyData.templates ?? []).map((template: TextTemplate) =>
-          template.id === updated.id ? updated : template
-        ),
-      });
-    },
-    [deps]
-  );
+  const updateTemplate = useCallback((_updated: TextTemplate): void => {
+    throw new Error(LEGACY_MUTATION_ERROR);
+  }, []);
 
-  const deleteTemplate = useCallback(
-    (id: string): void => {
-      deps.setLegacyData({
-        ...deps.legacyData,
-        templates: (deps.legacyData.templates ?? []).filter((template: TextTemplate) => template.id !== id),
-      });
-    },
-    [deps]
-  );
+  const deleteTemplate = useCallback((_id: string): void => {
+    throw new Error(LEGACY_MUTATION_ERROR);
+  }, []);
 
-  const reorderTemplates = useCallback(
-    (orderedItems: TextTemplate[]): void => {
-      const updated = (deps.legacyData.templates ?? []).map((template: TextTemplate) => {
-        const idx = orderedItems.findIndex((ordered) => ordered.id === template.id);
-        return idx === -1 ? template : { ...template, sortOrder: idx };
-      });
-      deps.setLegacyData({ ...deps.legacyData, templates: updated });
-    },
-    [deps]
-  );
+  const reorderTemplates = useCallback((_orderedItems: TextTemplate[]): void => {
+    throw new Error(LEGACY_MUTATION_ERROR);
+  }, []);
 
   const createManagedTemplate = useCallback(
     async (input: CreateProjectTemplateInput): Promise<void> => {
-      if (!deps.apiMode) {
-        const nowIso = new Date().toISOString();
-
-        addTemplate({
-          title: input.title,
-          channel: input.channel,
-          body: input.body,
-          example: input.example,
-          sortOrder: resolvedTemplates.length,
-          createdAt: nowIso,
-          updatedAt: nowIso,
-        });
-        return;
-      }
-
       if (apiTemplates === null) {
         throw new Error("Backend templates are not ready yet.");
       }
@@ -188,30 +134,11 @@ export function TemplatesProvider({
         setIsTemplatesMutating(false);
       }
     },
-    [addTemplate, apiTemplates, deps.activeProjectSlug, deps.apiMode, resolvedTemplates.length]
+    [apiTemplates, deps.activeProjectSlug]
   );
 
   const editManagedTemplate = useCallback(
     async (id: string, input: UpdateProjectTemplateInput): Promise<void> => {
-      if (!deps.apiMode) {
-        const existing = resolvedTemplates.find((template) => template.id === id);
-
-        if (!existing) {
-          throw new Error("Szablon nie został znaleziony.");
-        }
-
-        updateTemplate({
-          ...existing,
-          title: input.title ?? existing.title,
-          channel: input.channel ?? existing.channel,
-          body: input.body ?? existing.body,
-          example: input.example ?? existing.example,
-          sortOrder: input.sortOrder ?? existing.sortOrder,
-          updatedAt: new Date().toISOString(),
-        });
-        return;
-      }
-
       if (apiTemplates === null) {
         throw new Error("Backend templates are not ready yet.");
       }
@@ -236,16 +163,11 @@ export function TemplatesProvider({
         setIsTemplatesMutating(false);
       }
     },
-    [apiTemplates, deps.activeProjectSlug, deps.apiMode, resolvedTemplates, updateTemplate]
+    [apiTemplates, deps.activeProjectSlug]
   );
 
   const removeManagedTemplate = useCallback(
     async (id: string): Promise<void> => {
-      if (!deps.apiMode) {
-        deleteTemplate(id);
-        return;
-      }
-
       if (apiTemplates === null) {
         throw new Error("Backend templates are not ready yet.");
       }
@@ -264,16 +186,11 @@ export function TemplatesProvider({
         setIsTemplatesMutating(false);
       }
     },
-    [apiTemplates, deleteTemplate, deps.activeProjectSlug, deps.apiMode]
+    [apiTemplates, deps.activeProjectSlug]
   );
 
   const reorderManagedTemplates = useCallback(
     (orderedItems: TextTemplate[]): void => {
-      if (!deps.apiMode) {
-        reorderTemplates(orderedItems);
-        return;
-      }
-
       if (apiTemplates === null) {
         setTemplatesError("Backend templates are not ready yet.");
         return;
@@ -302,17 +219,17 @@ export function TemplatesProvider({
         }
       })();
     },
-    [apiTemplates, deps.activeProjectSlug, deps.apiMode, reorderTemplates]
+    [apiTemplates, deps.activeProjectSlug]
   );
 
   const templatesModule = useMemo<TemplatesModuleState>(
     () => ({
-      source: deps.apiMode ? "api" : "legacy",
+      source: "api",
       isLoading: isTemplatesLoading,
       isMutating: isTemplatesMutating,
       error: templatesError,
-      canWrite: !deps.apiMode || apiTemplates !== null,
-      canReorder: !deps.apiMode || apiTemplates !== null,
+      canWrite: apiTemplates !== null,
+      canReorder: apiTemplates !== null,
       createTemplate: createManagedTemplate,
       editTemplate: editManagedTemplate,
       removeTemplate: removeManagedTemplate,
@@ -321,7 +238,6 @@ export function TemplatesProvider({
     [
       apiTemplates,
       createManagedTemplate,
-      deps.apiMode,
       editManagedTemplate,
       isTemplatesLoading,
       isTemplatesMutating,

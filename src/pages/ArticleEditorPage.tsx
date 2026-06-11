@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   useParams,
   useSearchParams,
@@ -17,19 +17,18 @@ import type { DocSection } from "@/lib/types/domain";
 import RichEditor, { EMPTY_DOC } from "@/components/editor/rich-editor";
 import MatrixPicker from "@/components/admin/matrix-picker";
 import { Trash2, ChevronUp, ChevronDown, ChevronsUpDown, Minus } from "lucide-react";
-import { sectionToTipTapDoc, type TipTapDoc } from "@/lib/knowledge/content-doc";
+import { sectionToTipTapDoc } from "@/lib/knowledge/content-doc";
 import { stableSerialize, useUnsavedChangesGuard } from "@/hooks/useUnsavedChangesGuard";
+import {
+  clearArticleEditorDraft,
+  readArticleEditorDraft,
+  writeArticleEditorDraft,
+  type ArticleEditorSectionDraft,
+} from "@/lib/knowledge/article-editor-draft";
 
 // ── Section draft type ────────────────────────────────────────────────────────
 
-type SectionDraft = {
-  id: string;
-  title: string;
-  tags: string;
-  content: TipTapDoc;
-  collapsible: boolean;
-  showSeparator: boolean;
-};
+type SectionDraft = ArticleEditorSectionDraft;
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
@@ -41,8 +40,10 @@ export default function ArticleEditorPage() {
   const { pages, categories, matrix, communications, templates, addPage, updatePage, deletePage } = useData();
 
   const isNew = articleId === "nowy";
+  const draftArticleId = articleId ?? "nowy";
   const existing = isNew ? null : pages.find((p) => p.id === articleId);
   const prefilledCategoryId = searchParams.get("categoryId") ?? "";
+  const hasHydratedEditorRef = useRef(false);
 
   // ─ Form state ─
   const [title, setTitle] = useState("");
@@ -131,8 +132,26 @@ export default function ArticleEditorPage() {
     isSaving: saving,
   });
 
-  // Initialise from existing article (or pre-fill category from query param)
+  // Restore session draft first (tab discard / reload), then fall back to API data.
   useEffect(() => {
+    hasHydratedEditorRef.current = false;
+
+    const savedDraft = readArticleEditorDraft(draftArticleId);
+    if (savedDraft) {
+      setTitle(savedDraft.title);
+      setSummary(savedDraft.summary);
+      setSlug(savedDraft.slug);
+      setSlugManual(savedDraft.slugManual);
+      setCategoryId(savedDraft.categoryId);
+      setTags(savedDraft.tags);
+      setGlobalMatrixLinkIds(savedDraft.globalMatrixLinkIds);
+      setExternalSourceUrl(savedDraft.externalSourceUrl);
+      setSectionSearch(savedDraft.sectionSearch);
+      setSections(savedDraft.sections);
+      hasHydratedEditorRef.current = true;
+      return;
+    }
+
     if (existing) {
       setTitle(existing.title);
       setSummary(existing.summary);
@@ -148,27 +167,59 @@ export default function ArticleEditorPage() {
           ? existing.sections.map((s) => ({
               id: s.id,
               title: s.title,
-                tags: (s.tags ?? []).join(", "),
+              tags: (s.tags ?? []).join(", "),
               content: sectionToTipTapDoc(s),
               collapsible: s.collapsible ?? false,
               showSeparator: s.showSeparator !== false,
             }))
-            : [
-                {
-                  id: generateId("section"),
-                  title: "",
-                  tags: "",
-                  content: EMPTY_DOC,
-                  collapsible: false,
-                  showSeparator: true,
-                },
-              ]
+          : [
+              {
+                id: generateId("section"),
+                title: "",
+                tags: "",
+                content: EMPTY_DOC,
+                collapsible: false,
+                showSeparator: true,
+              },
+            ]
       );
     } else if (isNew) {
       setCategoryId(prefilledCategoryId);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [existing?.id, isNew, prefilledCategoryId]);
+
+    hasHydratedEditorRef.current = true;
+  }, [draftArticleId, existing?.id, isNew, prefilledCategoryId]);
+
+  useEffect(() => {
+    if (!hasHydratedEditorRef.current) {
+      return;
+    }
+
+    writeArticleEditorDraft(draftArticleId, {
+      title,
+      summary,
+      slug,
+      slugManual,
+      categoryId,
+      tags,
+      globalMatrixLinkIds,
+      externalSourceUrl,
+      sectionSearch,
+      sections,
+    });
+  }, [
+    draftArticleId,
+    title,
+    summary,
+    slug,
+    slugManual,
+    categoryId,
+    tags,
+    globalMatrixLinkIds,
+    externalSourceUrl,
+    sectionSearch,
+    sections,
+  ]);
 
   if (!user) return <Navigate to={ROUTES.home} replace />;
   if (!canEditContent(user)) return <Navigate to={ROUTES.home} replace />;
@@ -268,6 +319,7 @@ export default function ArticleEditorPage() {
           quickActions: [],
           sections: docSections,
         });
+        clearArticleEditorDraft(draftArticleId);
         allowNextNavigation();
         navigate(knowledgeArticlePath(newPage.category, newPage.slug), { replace: true });
       } else if (existing) {
@@ -287,6 +339,7 @@ export default function ArticleEditorPage() {
           sectionSearch,
           sections: docSections,
         });
+        clearArticleEditorDraft(draftArticleId);
         allowNextNavigation();
         navigate(knowledgeArticlePath(category?.slug ?? existing.category, normalizedSlug), {
           replace: true,
@@ -312,6 +365,12 @@ export default function ArticleEditorPage() {
       : existing
       ? knowledgeArticlePath(existing.category, existing.slug)
       : ROUTES.admin;
+
+  function handleCancel() {
+    clearArticleEditorDraft(draftArticleId);
+    allowNextNavigation();
+    navigate(backHref);
+  }
 
   return (
     <AppShell currentUser={user}>
@@ -517,12 +576,13 @@ export default function ArticleEditorPage() {
                 >
                   {saving ? "Zapisywanie…" : isNew ? "Utwórz artykuł" : "Zapisz zmiany"}
                 </button>
-                <Link
-                  to={backHref}
+                <button
+                  type="button"
+                  onClick={handleCancel}
                   className="mt-2 flex h-9 w-full items-center justify-center rounded-lg border border-[#e5e7eb] text-sm text-[#64748b] transition hover:border-[#1d4f91] hover:text-[#1d4f91]"
                 >
                   Anuluj
-                </Link>
+                </button>
                 {/* Delete — only for existing articles */}
                 {!isNew && existing && (
                   <div className="mt-3 border-t border-[#f1f5f9] pt-3">

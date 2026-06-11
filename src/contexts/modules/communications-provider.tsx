@@ -1,6 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { CommunicationMessage } from "@/lib/types/domain";
-import { generateId } from "@/lib/utils";
 import {
   adaptProjectCommunication,
   adaptProjectCommunications,
@@ -11,10 +10,12 @@ import {
   type CreateProjectCommunicationInput,
   type UpdateProjectCommunicationInput,
 } from "@/lib/api/project-communications";
-import type { ModuleDataSource, ProjectModuleDeps } from "./shared-module-types";
+import type { ProjectModuleDeps } from "./shared-module-types";
+
+const LEGACY_MUTATION_ERROR = "Legacy mutations are disabled in API mode";
 
 export type CommunicationsModuleState = {
-  source: ModuleDataSource;
+  source: "api";
   isLoading: boolean;
   isMutating: boolean;
   error: string | null;
@@ -67,14 +68,6 @@ export function CommunicationsProvider({
   const [communicationsError, setCommunicationsError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!deps.apiMode) {
-      setApiCommunications(null);
-      setIsCommunicationsLoading(false);
-      setIsCommunicationsMutating(false);
-      setCommunicationsError(null);
-      return;
-    }
-
     const controller = new AbortController();
 
     setIsCommunicationsLoading(true);
@@ -108,70 +101,30 @@ export function CommunicationsProvider({
     return () => {
       controller.abort();
     };
-  }, [deps.activeProjectSlug, deps.apiMode, deps.apiRuntimeRefreshKey]);
+  }, [deps.activeProjectSlug, deps.apiRuntimeRefreshKey]);
 
   const resolvedCommunications = useMemo<CommunicationMessage[]>(
-    () =>
-      sortCommunications(
-        deps.apiMode
-          ? apiCommunications ?? ((deps.legacyData.communications ?? []) as CommunicationMessage[])
-          : ((deps.legacyData.communications ?? []) as CommunicationMessage[])
-      ),
-    [apiCommunications, deps.apiMode, deps.legacyData.communications]
+    () => sortCommunications(apiCommunications ?? []),
+    [apiCommunications]
   );
 
   const addCommunication = useCallback(
-    (c: Omit<CommunicationMessage, "id"> & { id?: string }): CommunicationMessage => {
-      const full: CommunicationMessage = { ...c, id: c.id ?? generateId("kom") };
-      deps.setLegacyData({
-        ...deps.legacyData,
-        communications: [...(deps.legacyData.communications ?? []), full],
-      });
-      return full;
+    (_c: Omit<CommunicationMessage, "id"> & { id?: string }): CommunicationMessage => {
+      throw new Error(LEGACY_MUTATION_ERROR);
     },
-    [deps]
+    []
   );
 
-  const updateCommunication = useCallback(
-    (updated: CommunicationMessage): void => {
-      deps.setLegacyData({
-        ...deps.legacyData,
-        communications: (deps.legacyData.communications ?? []).map((item: CommunicationMessage) =>
-          item.id === updated.id ? updated : item
-        ),
-      });
-    },
-    [deps]
-  );
+  const updateCommunication = useCallback((_updated: CommunicationMessage): void => {
+    throw new Error(LEGACY_MUTATION_ERROR);
+  }, []);
 
-  const deleteCommunication = useCallback(
-    (id: string): void => {
-      deps.setLegacyData({
-        ...deps.legacyData,
-        communications: (deps.legacyData.communications ?? []).filter(
-          (item: CommunicationMessage) => item.id !== id
-        ),
-      });
-    },
-    [deps]
-  );
+  const deleteCommunication = useCallback((_id: string): void => {
+    throw new Error(LEGACY_MUTATION_ERROR);
+  }, []);
 
   const createManagedCommunication = useCallback(
     async (input: CreateProjectCommunicationInput): Promise<void> => {
-      if (!deps.apiMode) {
-        const nowIso = new Date().toISOString();
-
-        addCommunication({
-          title: input.title,
-          body: input.body,
-          status: input.status,
-          communicationDate: input.communicationDate ?? undefined,
-          createdAt: nowIso,
-          updatedAt: nowIso,
-        });
-        return;
-      }
-
       if (apiCommunications === null) {
         throw new Error("Backend communications are not ready yet.");
       }
@@ -192,31 +145,11 @@ export function CommunicationsProvider({
         setIsCommunicationsMutating(false);
       }
     },
-    [addCommunication, apiCommunications, deps.activeProjectSlug, deps.apiMode]
+    [apiCommunications, deps.activeProjectSlug]
   );
 
   const editManagedCommunication = useCallback(
     async (id: string, input: UpdateProjectCommunicationInput): Promise<void> => {
-      if (!deps.apiMode) {
-        const existing = resolvedCommunications.find((communication) => communication.id === id);
-
-        if (!existing) {
-          throw new Error("Komunikat nie został znaleziony.");
-        }
-
-        updateCommunication({
-          ...existing,
-          title: input.title ?? existing.title,
-          body: input.body ?? existing.body,
-          status: input.status ?? existing.status,
-          communicationDate: Object.prototype.hasOwnProperty.call(input, "communicationDate")
-            ? (input.communicationDate ?? undefined)
-            : existing.communicationDate,
-          updatedAt: new Date().toISOString(),
-        });
-        return;
-      }
-
       if (apiCommunications === null) {
         throw new Error("Backend communications are not ready yet.");
       }
@@ -241,16 +174,11 @@ export function CommunicationsProvider({
         setIsCommunicationsMutating(false);
       }
     },
-    [apiCommunications, deps.activeProjectSlug, deps.apiMode, resolvedCommunications, updateCommunication]
+    [apiCommunications, deps.activeProjectSlug]
   );
 
   const removeManagedCommunication = useCallback(
     async (id: string): Promise<void> => {
-      if (!deps.apiMode) {
-        deleteCommunication(id);
-        return;
-      }
-
       if (apiCommunications === null) {
         throw new Error("Backend communications are not ready yet.");
       }
@@ -269,16 +197,16 @@ export function CommunicationsProvider({
         setIsCommunicationsMutating(false);
       }
     },
-    [apiCommunications, deleteCommunication, deps.activeProjectSlug, deps.apiMode]
+    [apiCommunications, deps.activeProjectSlug]
   );
 
   const communicationsModule = useMemo<CommunicationsModuleState>(
     () => ({
-      source: deps.apiMode ? "api" : "legacy",
+      source: "api",
       isLoading: isCommunicationsLoading,
       isMutating: isCommunicationsMutating,
       error: communicationsError,
-      canWrite: !deps.apiMode || apiCommunications !== null,
+      canWrite: apiCommunications !== null,
       createCommunication: createManagedCommunication,
       editCommunication: editManagedCommunication,
       removeCommunication: removeManagedCommunication,
@@ -287,7 +215,6 @@ export function CommunicationsProvider({
       apiCommunications,
       communicationsError,
       createManagedCommunication,
-      deps.apiMode,
       editManagedCommunication,
       isCommunicationsLoading,
       isCommunicationsMutating,
@@ -303,13 +230,7 @@ export function CommunicationsProvider({
       deleteCommunication,
       communicationsModule,
     }),
-    [
-      addCommunication,
-      communicationsModule,
-      deleteCommunication,
-      resolvedCommunications,
-      updateCommunication,
-    ]
+    [addCommunication, communicationsModule, deleteCommunication, resolvedCommunications, updateCommunication]
   );
 
   return (
