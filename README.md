@@ -38,7 +38,7 @@ In **production containers**, a single Node process serves both the compiled SPA
 
 **Search model:** Global and project search (`src/lib/search/search.ts`) runs entirely **in-memory** over data already loaded into React module providers. This keeps database I/O minimal and avoids server-side search indexes for interactive lookup. Module endpoints return list payloads; the client ranks and filters them locally.
 
-**Audit model:** `AuditLog` rows are an **append-only side effect** of mutations (not the primary datastore). Upload tier capacity is also derived from audit `create` events for `project_media_upload` entities.
+**Audit model:** `AuditLog` rows are an **append-only side effect** of mutations (not the primary datastore). Video tier capacity is derived from audit `create` events for `project_media_upload` entities.
 
 ---
 
@@ -53,18 +53,36 @@ In **production containers**, a single Node process serves both the compiled SPA
 | **Production auth** | Default: header auth **disabled** in `NODE_ENV=production` | Identity is expected from an upstream IdP/gateway in live deployments. See [Pre-IdP Staging Auth](#pre-idp-staging-auth). |
 | **Structured logging** | `LOG_LEVEL` | Application logs via Pino to **stdout** only. Business audit events go to PostgreSQL, not log files. |
 
-### Tiered upload capacity policy
+### Media upload policy & limits
 
-Uploads use `@fastify/multipart` with enforcement at the stream, route, and project-capacity layers.
+Uploads are handled via `POST /api/v1/uploads` with **per-kind size caps** and **video-only tiered capacity**. The SPA performs client-side pre-validation (localized Polish alerts, limits shown in MB) before any network request; the Fastify backend enforces the same rules authoritatively during `@fastify/multipart` stream parsing and route handling.
+
+#### Per-kind maximum size
+
+| Kind | Limit |
+|------|-------|
+| **Images (Zdjęcia)** | **5 MB** |
+| **Files / documents (Pliki / Dokumenty)** | **10 MB** |
+| **Videos (Filmy wideo)** | **300 MB** (`UPLOAD_MAX_FILE_SIZE_BYTES=314572800` also caps multipart streams globally) |
+
+#### Video tiered capacity (per project)
+
+Tier counting applies **only to video** uploads and is derived from `project_media_upload` audit `create` events:
+
+| Tier | Size range | Max videos per project |
+|------|------------|------------------------|
+| **Small** | ≤ 25 MB | **10** |
+| **Large** | \> 25 MB and ≤ 300 MB | **3** |
+
+Images and documents are not subject to tier quotas—only their per-kind size limits above.
+
+#### Other upload controls
 
 | Rule | Limit | Enforcement |
 |------|-------|-------------|
-| **Global file size** | **300 MB** hard cap | `UPLOAD_MAX_FILE_SIZE_BYTES=314572800` on multipart limits and stream guards |
-| **Small tier** | ≤ 25 MB, **max 10 files per project** | Counts existing `project_media_upload` audit `create` events |
-| **Large tier** | \> 25 MB and ≤ 300 MB, **max 3 files per project** | Same audit-based counting |
 | **Upload rate limit** | **5 requests / minute / IP** | Route-level limit on `POST /api/v1/uploads` (`UPLOAD_RATE_LIMIT_MAX`, `UPLOAD_RATE_LIMIT_TIME_WINDOW`) |
 
-Violations return **HTTP 400** with descriptive error codes (`UPLOAD_TOO_LARGE`, `UPLOAD_CAPACITY_EXCEEDED`). Files are written under `MEDIA_STORAGE_ROOT` (default `runtime-media/`) and served at `/photos/*`, `/videos/*`, `/files/*`.
+Violations return **HTTP 400** with codes such as `UPLOAD_TOO_LARGE` or `UPLOAD_CAPACITY_EXCEEDED`. Accepted files are stored under `MEDIA_STORAGE_ROOT` (default `runtime-media/`) and served at `/photos/*`, `/videos/*`, `/files/*`.
 
 ### Telemetry and API documentation
 
